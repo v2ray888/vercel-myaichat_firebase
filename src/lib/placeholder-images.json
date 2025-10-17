@@ -1,3 +1,40 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-image",
+      "description": "Hero image for the landing page",
+      "imageUrl": "https://picsum.photos/seed/zlt-hero/600/400",
+      "imageHint": "customer support illustration"
+    },
+    {
+      "id": "user-avatar",
+      "description": "User avatar for dashboard and sidebar",
+      "imageUrl": "https://picsum.photos/seed/user-avatar/40/40",
+      "imageHint": "person avatar"
+    },
+    {
+      "id": "brand-logo",
+      "description": "Default brand logo for chat widget",
+      "imageUrl": "https://picsum.photos/seed/brand-logo/32/32",
+      "imageHint": "company logo"
+    },
+    {
+      "id": "customer-1",
+      "description": "Avatar for customer 1 in workbench",
+      "imageUrl": "https://picsum.photos/seed/customer-1/40/40",
+      "imageHint": "woman avatar"
+    },
+    {
+      "id": "customer-2",
+      "description": "Avatar for customer 2 in workbench",
+      "imageUrl": "https://picsum.photos/seed/customer-2/40/40",
+      "imageHint": "man avatar"
+    },
+    {
+      "id": "customer-3",
+      "description": "Avatar for customer 3 in workbench",
+      "imageUrl": "https://picsum.photos/seed/customer-3/40/40",
+      "imageHint": "person avatar"
+    }
+  ]
 }
