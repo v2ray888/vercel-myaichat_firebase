@@ -36,11 +36,7 @@ import {
 import { Icons } from "@/components/icons"
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Skeleton } from "@/components/ui/skeleton"
-
-type User = {
-    name: string | null;
-    email: string;
-}
+import { useSession } from "@/hooks/use-session"
 
 export default function DashboardLayout({
   children,
@@ -49,33 +45,16 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar');
+  const { session: user, isLoading: isSessionLoading } = useSession();
+
 
   useEffect(() => {
-    // In a real app, you'd fetch this from the session.
-    // For now we simulate it. The middleware protects the route.
-    // A better approach would be to have a session provider.
-    const fetchUser = async () => {
-        // This is a temporary way to get user info on the client.
-        // A full solution would involve a session provider context.
-        const res = await fetch('/api/auth/session'); // A new endpoint to get session
-        if(res.ok) {
-            const data = await res.json();
-            if (data.session) {
-                setUser({
-                    name: data.session.name,
-                    email: data.session.email
-                });
-            } else {
-                router.push('/login');
-            }
-        }
+    if (!isSessionLoading && !user) {
+        router.push('/login');
     }
-    // Let's create a temp user object
-    setUser({ name: "客服代表", email: "admin@zhiliaotong.com" });
-  },[router])
+  },[user, isSessionLoading, router])
 
   const navItems = [
     { href: "/dashboard", icon: <Home />, label: "仪表盘" },
@@ -87,6 +66,8 @@ export default function DashboardLayout({
   const handleLogout = async () => {
       setIsLoggingOut(true);
       await fetch('/api/auth/logout', { method: 'POST' });
+      // The middleware will handle the redirect
+      router.refresh();
       router.push('/login');
   }
 

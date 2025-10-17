@@ -11,6 +11,7 @@ import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, Circ
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Card, CardContent } from "@/components/ui/card"
 import Pusher from 'pusher-js';
+import { useSession } from "@/hooks/use-session"
 
 type Message = {
   id: string;
@@ -29,13 +30,20 @@ type Conversation = {
 };
 
 // Ensure this is initialized only once
-const pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
-    cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-    authEndpoint: '/api/pusher-auth',
-    auth: {
-        headers: { 'Content-Type': 'application/json' },
+let pusherClient: Pusher | null = null;
+const getPusherClient = () => {
+    if (!pusherClient) {
+        pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+            cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+            authEndpoint: '/api/pusher-auth',
+            auth: {
+                headers: { 'Content-Type': 'application/json' },
+            }
+        });
     }
-});
+    return pusherClient;
+}
+
 
 export default function WorkbenchPage() {
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
@@ -44,21 +52,29 @@ export default function WorkbenchPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const fetchAllConversations = async () => {
-    try {
-      // In a real app, you'd fetch this from an API endpoint that gets all conversations.
-      // For now, we rely on Pusher for new conversations.
-      // You could implement an endpoint that lists keys from Vercel KV `kv.keys('conversation:*')`
-    } catch (error) {
-      console.error("Failed to fetch conversations:", error);
-    }
-  };
+  const { session, isLoading: isSessionLoading } = useSession();
 
   useEffect(() => {
+    if (isSessionLoading || !session?.userId) return;
+
+    const pusher = getPusherClient();
+
+    const fetchAllConversations = async () => {
+        try {
+            const response = await fetch(`/api/conversations?agentId=${session.userId}`);
+            if (response.ok) {
+                const convos: Conversation[] = await response.json();
+                setConversations(new Map(convos.map(c => [c.id, c])));
+            }
+        } catch (error) {
+          console.error("Failed to fetch conversations:", error);
+        }
+    };
     fetchAllConversations();
 
-    const agentChannel = pusherClient.subscribe('agent-dashboard');
+    // The agent now listens on a private channel for new conversations
+    const agentChannelName = `private-agent-${session.userId}`;
+    const agentChannel = pusher.subscribe(agentChannelName);
 
     agentChannel.bind('new-conversation', (newConvData: string) => {
       const newConv: Conversation = JSON.parse(newConvData);
@@ -70,28 +86,22 @@ export default function WorkbenchPage() {
         return newConvos;
       });
     });
-
-    // We need to subscribe to all channels this agent is part of.
-    // In a real app, you would fetch the list of conversations an agent is assigned to.
-    // For this demo, we will subscribe as new conversations come in.
     
     return () => {
-        pusherClient.unsubscribe('agent-dashboard');
-        // Unsubscribe from all conversation channels
-        conversations.forEach(convo => {
-            pusherClient.unsubscribe(`private-conversation-${convo.id}`);
-        });
+        pusher.unsubscribe(agentChannelName);
     }
-  }, []);
+  }, [isSessionLoading, session]);
+
 
   useEffect(() => {
      // Subscribe to channels for existing and new conversations
+    const pusher = getPusherClient();
     conversations.forEach(convo => {
         const channelName = `private-conversation-${convo.id}`;
         // Prevent subscribing multiple times
-        if (pusherClient.channel(channelName)) return;
+        if (pusher.channel(channelName)) return;
 
-        const channel = pusherClient.subscribe(channelName);
+        const channel = pusher.subscribe(channelName);
         channel.bind('new-message', (msg: Message) => {
             setConversations(prev => {
                 const newConvos = new Map(prev);
@@ -110,6 +120,16 @@ export default function WorkbenchPage() {
             });
         });
     });
+
+     return () => {
+        conversations.forEach(convo => {
+            const channelName = `private-conversation-${convo.id}`;
+            if(pusher.channel(channelName)) {
+                pusher.unsubscribe(channelName);
+            }
+        });
+     }
+
   }, [conversations, selectedConversationId]);
 
 
@@ -131,9 +151,8 @@ export default function WorkbenchPage() {
         return newConvos;
     });
 
-    // Fetch history if it's not already loaded
+    // Fetch history if it's not already fully loaded
     const currentConvo = conversations.get(id);
-    // This is temporary, we'll fetch from a real backend later
     if (currentConvo && currentConvo.messages.length <= 1) { 
         try {
             const response = await fetch(`/api/stream-chat?conversationId=${id}`);
@@ -143,7 +162,15 @@ export default function WorkbenchPage() {
                     const newConvos = new Map(prev);
                     const existingConvo = newConvos.get(id);
                     if (existingConvo) {
-                      newConvos.set(id, { ...existingConvo, messages: data.messages, unread: 0 });
+                      const mergedMessages = [...existingConvo.messages];
+                      data.messages.forEach(msg => {
+                          if (!mergedMessages.some(m => m.id === msg.id)) {
+                              mergedMessages.push(msg);
+                          }
+                      })
+                      mergedMessages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+                      newConvos.set(id, { ...existingConvo, messages: mergedMessages, unread: 0 });
                     }
                     return newConvos;
                  });
@@ -230,7 +257,8 @@ export default function WorkbenchPage() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {conversationArray.length === 0 && <p className="p-4 text-sm text-muted-foreground">暂无活跃对话</p>}
+          {isSessionLoading && <p className="p-4 text-sm text-muted-foreground">正在加载...</p>}
+          {!isSessionLoading && conversationArray.length === 0 && <p className="p-4 text-sm text-muted-foreground">暂无活跃对话</p>}
           {conversationArray.map((convo) => (
             <div
               key={convo.id}
@@ -342,7 +370,7 @@ export default function WorkbenchPage() {
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <MessageSquare className="h-16 w-16 mb-4" />
             <p className="text-lg font-medium">请从左侧选择一个对话</p>
-            <p className="text-sm">或者等待新客户发起会话。</p>
+            <p className="text-sm">或者等待分配给您的新会话。</p>
           </div>
         )}
       </div>

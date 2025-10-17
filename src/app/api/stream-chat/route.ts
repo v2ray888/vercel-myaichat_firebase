@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { conversations, messages as messagesTable } from '@/lib/schema';
+import { conversations, messages as messagesTable, users } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import Pusher from 'pusher';
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,6 +12,8 @@ const pusher = new Pusher({
   cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
   useTLS: true
 });
+
+const ADMIN_EMAIL = 'v2rayn@outlook.com';
 
 // GET a conversation's history
 export async function GET(req: NextRequest) {
@@ -56,12 +58,25 @@ export async function POST(req: NextRequest) {
     let isNewConversation = false;
    
     if (role === 'customer' && !currentConversationId) {
-      isNewConversation = true;
-      const newConversation = await db.insert(conversations).values({ 
-          customerName: senderName || `访客`,
-      }).returning({ id: conversations.id });
-      currentConversationId = newConversation[0].id;
+        isNewConversation = true;
+
+        const admin = await db.query.users.findFirst({
+            where: eq(users.email, ADMIN_EMAIL),
+        });
+
+        if (!admin) {
+            console.error(`Admin user ${ADMIN_EMAIL} not found.`);
+            return NextResponse.json({ error: 'System configuration error: Admin user not found.' }, { status: 500 });
+        }
+
+        const newConversation = await db.insert(conversations).values({ 
+            customerName: senderName || `访客`,
+            assigneeId: admin.id,
+        }).returning({ id: conversations.id });
+
+        currentConversationId = newConversation[0].id;
     }
+
 
     if (!currentConversationId) {
         return NextResponse.json({ error: 'Conversation ID is missing.' }, { status: 400 });
@@ -76,17 +91,27 @@ export async function POST(req: NextRequest) {
     const newMessage = insertedMessages[0];
     
     const channelName = `private-conversation-${currentConversationId}`;
-
+    
+    // The agent dashboard now listens on a user-specific channel
+    // We need to get the assigneeId for this conversation
     if (isNewConversation) {
-        const conversationData = {
-          id: currentConversationId,
-          name: senderName || `访客 ${currentConversationId.substring(0, 6)}`,
-          messages: [newMessage],
-          createdAt: newMessage.timestamp.toISOString(),
-          isActive: true,
-        };
-        await pusher.trigger('agent-dashboard', 'new-conversation', JSON.stringify(conversationData));
+        const conversationData = await db.query.conversations.findFirst({
+            where: eq(conversations.id, currentConversationId)
+        });
+
+        if(conversationData && conversationData.assigneeId) {
+            const agentChannel = `private-agent-${conversationData.assigneeId}`;
+            const conversationPayload = {
+              id: currentConversationId,
+              name: senderName || `访客 ${currentConversationId.substring(0, 6)}`,
+              messages: [newMessage],
+              createdAt: newMessage.timestamp.toISOString(),
+              isActive: true,
+            };
+            await pusher.trigger(agentChannel, 'new-conversation', JSON.stringify(conversationPayload));
+        }
     }
+
 
     await pusher.trigger(channelName, 'new-message', newMessage);
 
