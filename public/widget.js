@@ -1,65 +1,41 @@
 (function() {
-    // Check if the script has already been initialized
-    if (window.zhiliaotongWidget) {
-        return;
-    }
-    
-    // Default settings
-    const settings = window.zhiliaotongSettings || {};
-    const appId = settings.appId;
-    
-    if (!appId) {
-        console.error("智聊通 (ZhiLiaoTong): App ID is missing. Please set window.zhiliaotongSettings.appId");
-        return;
-    }
+  // Ensure this runs only once.
+  if (window.zhiliaotongWidget) {
+    return;
+  }
 
-    // Mark as initialized
-    window.zhiliaotongWidget = true;
+  // Settings from the host page.
+  const settings = window.zhiliaotongSettings || {};
+  const appId = settings.appId;
 
-    // Create the iframe
-    const iframe = document.createElement('iframe');
-    const iframeId = 'zhiliaotong-widget-iframe';
-    
-    // Construct the URL for the iframe source
-    // In a real production scenario, this would be your app's domain
-    const origin = new URL(document.currentScript.src).origin;
-    iframe.src = `${origin}/widget?appId=${appId}`;
-    iframe.id = iframeId;
-    
-    // Style the iframe to be a transparent overlay for the widget button and card
-    iframe.style.position = 'fixed';
-    iframe.style.bottom = '0';
-    iframe.style.right = '0';
-    iframe.style.border = 'none';
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.style.maxWidth = '420px'; // Max width of the chat card
-    iframe.style.maxHeight = '80vh'; // Max height of the chat card + button
-    iframe.style.zIndex = '9999';
-    iframe.style.backgroundColor = 'transparent';
-    iframe.style.pointerEvents = 'none'; // Initially, let clicks pass through
+  if (!appId) {
+    console.error("智聊通: 未找到 appId, 小部件无法加载。");
+    return;
+  }
 
-    // Append the iframe to the body
-    document.body.appendChild(iframe);
-    
-    // Listen for messages from the iframe to enable pointer events when the widget is open
-    window.addEventListener('message', function(event) {
-        // Security check: ensure the message is from our iframe's origin
-        if (event.origin !== origin) {
-            return;
-        }
+  // Create the iframe element.
+  const iframe = document.createElement('iframe');
+  const widgetUrl = `${new URL(document.currentScript.src).origin}/widget?appId=${appId}`;
+  
+  // Style the iframe for a seamless, floating widget experience.
+  iframe.src = widgetUrl;
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0px';
+  iframe.style.bottom = '0px';
+  iframe.style.width = '100%'; 
+  iframe.style.height = '100%';
+  iframe.style.maxWidth = '420px';
+  iframe.style.maxHeight = '75vh';
+  iframe.style.border = 'none';
+  iframe.style.backgroundColor = 'transparent';
+  iframe.style.zIndex = '9999';
 
-        const iframeEl = document.getElementById(iframeId);
-        if (iframeEl && event.data === 'zhiliaotong-widget-open') {
-             iframeEl.style.pointerEvents = 'auto';
-        } else if (iframeEl && event.data === 'zhiliaotong-widget-close') {
-             iframeEl.style.pointerEvents = 'none';
-        }
-    });
+  // Add the iframe to the host page's body.
+  document.body.appendChild(iframe);
 
-    // To allow the widget inside the iframe to control pointer-events,
-    // we need to add logic inside the ChatWidget component to post messages.
-    // We will modify ChatWidget.tsx to post 'zhiliaotong-widget-open' and 'zhiliaotong-widget-close' messages.
-    // This script is now complete.
-    
+  // Mark the widget as loaded.
+  window.zhiliaotongWidget = {
+    iframe: iframe
+  };
+
 })();
