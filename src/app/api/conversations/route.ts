@@ -2,18 +2,18 @@ import { db } from '@/lib/db';
 import { conversations, messages as messagesTable } from '@/lib/schema';
 import { eq, desc } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/session';
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const agentId = searchParams.get('agentId');
+  const session = await getSession();
 
-  if (!agentId) {
-    return NextResponse.json({ error: 'Agent ID is required' }, { status: 400 });
+  if (!session?.userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const agentConversations = await db.query.conversations.findMany({
-      where: eq(conversations.assigneeId, agentId),
+      where: eq(conversations.assigneeId, session.userId),
       orderBy: [desc(conversations.updatedAt)],
       with: {
         messages: {
