@@ -10,8 +10,9 @@ import { Suspense } from "react";
 function WidgetPage() {
     return (
         // The Suspense Boundary is important for client components that use searchParams
-        <Suspense fallback={<div>Loading...</div>}>
-            <ChatWidget isEmbedded={true} />
+        // This page is now just a container for the self-contained ChatWidget.
+        <Suspense fallback={null}>
+            <ChatWidget />
         </Suspense>
     );
 }

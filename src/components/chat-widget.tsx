@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect, useRef, Suspense } from 'react';
@@ -22,28 +21,22 @@ type Message = {
 };
 
 // We wrap the component that uses `useSearchParams` in a Suspense boundary
-// as recommended by Next.js
-export default function ChatWidgetWrapper(props: { isEmbedded?: boolean }) {
+export default function ChatWidgetWrapper() {
   return (
     <Suspense>
-      <ChatWidget {...props} />
+      <ChatWidget />
     </Suspense>
   )
 }
 
-// Ensure this is initialized only once per client
 let pusherClient: Pusher | null = null;
 
 const getPusherClient = () => {
     if (!pusherClient) {
-        // This check is to prevent errors during server-side rendering
         if (typeof window !== "undefined") {
             pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
                 cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
                 authEndpoint: '/api/pusher-auth',
-                 auth: {
-                    headers: { 'Content-Type': 'application/json' },
-                }
             });
         }
     }
@@ -51,8 +44,8 @@ const getPusherClient = () => {
 }
 
 
-function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
-    const [isOpen, setIsOpen] = useState(isEmbedded); // Widget is open by default if embedded
+function ChatWidget() {
+    const [isOpen, setIsOpen] = useState(false); 
     const [messages, setMessages] = useState<Message[]>([
         { id: 'initial-message', text: '您好！我是智聊通智能客服，有什么可以帮助您的吗？', sender: 'bot', timestamp: new Date().toISOString() },
     ]);
@@ -61,7 +54,7 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
     const [isConnecting, setIsConnecting] = useState(false);
     
     const searchParams = useSearchParams();
-    const appId = searchParams.get('appId'); // Read appId if embedded
+    const appId = searchParams.get('appId'); 
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const brandLogo = PlaceHolderImages.find(p => p.id === 'brand-logo');
@@ -73,10 +66,7 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
         
         const channelName = `private-conversation-${convId}`;
         
-        // Unsubscribe from any old channel to prevent multiple listeners
-        if (pusher.channel(channelName)) {
-           pusher.unsubscribe(channelName);
-        }
+        pusher.unsubscribe(channelName);
         
         const channel = pusher.subscribe(channelName);
         setIsConnecting(true);
@@ -92,7 +82,7 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
             setMessages(prev => [...prev, { id: 'error-msg', text: `连接失败，请重试`, sender: 'system', timestamp: new Date().toISOString() }]);
         });
 
-        channel.bind('new-message', (msgData: Message) => {
+        channel.bind('new-message', (msgData: any) => {
             const msg = typeof msgData === 'string' ? JSON.parse(msgData) : msgData;
             if (msg.sender === 'agent') {
                 setMessages((prev) => [...prev, msg]);
@@ -100,7 +90,6 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
         });
     }
     
-    // Effect for handling session storage and initial setup
     useEffect(() => {
         if (!isOpen) return;
 
@@ -109,23 +98,21 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
             setConversationId(storedConvId);
             subscribeToChannel(storedConvId);
             
-            // Fetch history for existing conversation
             fetch(`/api/stream-chat?conversationId=${storedConvId}`).then(res => res.json()).then(data => {
                 if (data && data.messages && data.messages.length > 0) {
-                    const historyMessages = data.messages.map((msg: any) => ({...msg, sender: msg.sender === 'user' ? 'user' : (msg.sender || 'agent')}));
-                    setMessages(prev => [prev[0], ...historyMessages]);
+                     const historyMessages = data.messages.map((msg: any) => ({...msg, sender: msg.sender === 'customer' ? 'user' : (msg.sender || 'agent')}));
+                     setMessages(prev => [prev[0], ...historyMessages]);
                 }
             }).catch(err => console.error("Failed to fetch history:", err));
         }
         
-        // This is the cleanup function
         return () => {
              const pusher = getPusherClient();
              if (pusher && conversationId) {
                 pusher.unsubscribe(`private-conversation-${conversationId}`);
              }
         };
-    }, [isOpen, conversationId]); // Depend on conversationId to re-subscribe if it changes
+    }, [isOpen]); 
 
     useEffect(() => {
         if (isOpen) {
@@ -154,8 +141,8 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
                   message: currentInputValue, 
                   conversationId: conversationId,
                   role: 'customer',
-                  senderName: `访客`, // Name can be collected via a form later
-                  appId: appId, // Pass appId to the backend
+                  senderName: `访客`,
+                  appId: appId,
                 }),
             });
             if (!response.ok) throw new Error('发送失败');
@@ -178,32 +165,21 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
         }
     };
     
-    // If it's not embedded, it's the launcher button on the main app
-    if (!isEmbedded) {
-        if (!isOpen) {
-            return (
-                <Button 
-                    className="fixed bottom-4 right-4 h-16 w-16 rounded-full shadow-lg z-50 animate-in fade-in zoom-in-50"
-                    onClick={() => setIsOpen(true)}
-                    aria-label="打开聊天窗口"
-                >
-                    <MessageCircle className="h-8 w-8" />
-                </Button>
-            );
-        }
-        // When open, it renders the full chat card inside the main app
+    if (!isOpen) {
+        return (
+            <Button 
+                className="fixed bottom-4 right-4 h-16 w-16 rounded-full shadow-lg z-50 animate-in fade-in zoom-in-50"
+                onClick={() => setIsOpen(true)}
+                aria-label="打开聊天窗口"
+            >
+                <MessageCircle className="h-8 w-8" />
+            </Button>
+        );
     }
     
-    // This is the main chat window UI
     return (
-        <div className={cn(
-            "z-50 animate-in fade-in slide-in-from-bottom-5",
-            isEmbedded ? "w-screen h-screen" : "fixed bottom-4 right-4"
-        )}>
-            <Card className={cn(
-                "shadow-2xl flex flex-col overflow-hidden",
-                isEmbedded ? "w-full h-full border-none rounded-none" : "w-full max-w-sm h-[60vh] md:h-[70vh] max-h-[700px] rounded-lg"
-            )}>
+        <div className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-5">
+            <Card className="w-full max-w-sm h-[60vh] md:h-[70vh] max-h-[700px] rounded-lg shadow-2xl flex flex-col overflow-hidden">
                 <CardHeader className="flex flex-row items-center justify-between p-3 bg-primary text-primary-foreground">
                     <div className="flex items-center gap-3">
                         {brandLogo && (
@@ -218,18 +194,15 @@ function ChatWidget({ isEmbedded = false }: { isEmbedded?: boolean }) {
                             </p>
                         </div>
                     </div>
-                    {/* Only show the close button if it's not embedded in an iframe */}
-                    {!isEmbedded && (
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-primary-foreground hover:bg-primary/80" 
-                            onClick={() => setIsOpen(false)}
-                            aria-label="关闭聊天窗口"
-                        >
-                            <X className="h-5 w-5" />
-                        </Button>
-                    )}
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-primary-foreground hover:bg-primary/80" 
+                        onClick={() => setIsOpen(false)}
+                        aria-label="关闭聊天窗口"
+                    >
+                        <X className="h-5 w-5" />
+                    </Button>
                 </CardHeader>
                 <CardContent className="flex-1 p-4 overflow-y-auto space-y-4 bg-background">
                     {messages.map((message) => (
