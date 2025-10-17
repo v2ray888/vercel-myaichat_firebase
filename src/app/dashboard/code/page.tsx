@@ -16,8 +16,13 @@ export default function CodePage() {
   const { toast } = useToast()
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [widgetScriptUrl, setWidgetScriptUrl] = useState("");
 
   useEffect(() => {
+    // Dynamically construct the widget URL based on the current host.
+    // This ensures it works in development, preview, and production.
+    setWidgetScriptUrl(`${window.location.origin}/widget.js`);
+
     async function fetchSettings() {
       try {
         const response = await fetch('/api/settings');
@@ -43,10 +48,10 @@ export default function CodePage() {
     appId: "${settings?.id || 'YOUR_APP_ID'}",
   };
 </script>
-<script src="https://cdn.zhiliaotong.com/widget.js" async defer></script>`;
+<script src="${widgetScriptUrl}" async defer></script>`;
 
   const handleCopy = () => {
-    if (settings?.id) {
+    if (settings?.id && widgetScriptUrl) {
         navigator.clipboard.writeText(codeSnippet);
         toast({
           title: "已复制!",
@@ -56,7 +61,7 @@ export default function CodePage() {
          toast({
             variant: "destructive",
             title: "复制失败",
-            description: "无法复制，因为应用ID不可用。"
+            description: "无法复制，因为应用ID或脚本地址不可用。"
         })
     }
   }
@@ -79,14 +84,14 @@ export default function CodePage() {
                     <pre>
                         <code className="font-code text-sm text-foreground">{codeSnippet}</code>
                     </pre>
-                    <Button size="icon" variant="ghost" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={handleCopy} disabled={!settings?.id}>
+                    <Button size="icon" variant="ghost" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={handleCopy} disabled={!settings?.id || !widgetScriptUrl}>
                         <Copy className="h-4 w-4"/>
                         <span className="sr-only">复制</span>
                     </Button>
                  </div>
             )}
          
-          <Button className="mt-4" onClick={handleCopy} disabled={!settings?.id || isLoading}>
+          <Button className="mt-4" onClick={handleCopy} disabled={!settings?.id || isLoading || !widgetScriptUrl}>
             <Copy className="mr-2 h-4 w-4" /> 复制代码
           </Button>
         </CardContent>
