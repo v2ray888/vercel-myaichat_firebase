@@ -2,7 +2,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Send, Bot, User } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Paperclip } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -48,6 +48,7 @@ export default function ChatWidget() {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const brandLogo = PlaceHolderImages.find(p => p.id === 'brand-logo');
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const subscribeToChannel = (convId: string) => {
         const pusher = getPusherClient();
@@ -72,7 +73,8 @@ export default function ChatWidget() {
             setMessages(prev => [...prev, { id: 'error-msg', text: `连接失败，请重试`, sender: 'system', timestamp: new Date().toISOString() }]);
         });
 
-        channel.bind('new-message', (msg: Message) => {
+        channel.bind('new-message', (msgData: Message) => {
+            const msg = typeof msgData === 'string' ? JSON.parse(msgData) : msgData;
             if (msg.sender === 'agent') {
                 setMessages((prev) => [...prev, msg]);
             }
@@ -86,13 +88,15 @@ export default function ChatWidget() {
             if (storedConvId) {
                 setConversationId(storedConvId);
                 subscribeToChannel(storedConvId);
-                // fetch history
+                // fetch history - temporarily disabled until backend is persistent
+                /*
                  fetch(`/api/stream-chat?conversationId=${storedConvId}`).then(res => res.json()).then(data => {
                     if (data && data.messages && data.messages.length > 0) {
                         const historyMessages = data.messages.map((msg: any) => ({...msg, sender: msg.sender === 'user' ? 'user' : 'agent'}));
                         setMessages(prev => [prev[0], ...historyMessages]);
                     }
                  })
+                 */
             }
         } else {
             if (pusherClient && conversationId) {
@@ -123,13 +127,15 @@ export default function ChatWidget() {
             timestamp: new Date().toISOString()
         };
         setMessages(prev => [...prev, userMessage]);
+        const currentInputValue = inputValue;
+        setInputValue('');
         
         try {
             const response = await fetch('/api/stream-chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                  message: inputValue, 
+                  message: currentInputValue, 
                   conversationId: conversationId,
                   role: 'customer',
                   senderName: `访客 ${conversationId?.substring(0, 6) || '新'}`,
@@ -153,7 +159,21 @@ export default function ChatWidget() {
                 timestamp: new Date().toISOString()
             }]);
         }
-        setInputValue('');
+    };
+
+    const handleImageUpload = () => {
+      fileInputRef.current?.click();
+    };
+
+    const onFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      // TODO: Implement actual file upload logic
+      console.log("Selected file:", file.name);
+      // For now, just send a text message indicating a file was "sent"
+      setInputValue(`[文件: ${file.name}]`);
+      // Reset file input
+      event.target.value = '';
     };
 
     if (!isOpen) {
@@ -226,8 +246,13 @@ export default function ChatWidget() {
                 </CardContent>
                 <CardFooter className="p-0 flex flex-col bg-card">
                     <Separator />
-                    <div className="p-2.5 w-full">
-                         <div className="relative">
+                    <div className="p-2 w-full flex items-center gap-2">
+                        <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
+                        <Button variant="ghost" size="icon" onClick={handleImageUpload} disabled={isConnecting && !conversationId}>
+                            <Paperclip className="h-5 w-5 text-muted-foreground" />
+                            <span className="sr-only">上传文件</span>
+                        </Button>
+                        <div className="relative flex-grow">
                             <Input
                                 value={inputValue}
                                 onChange={(e) => setInputValue(e.target.value)}
@@ -250,10 +275,11 @@ export default function ChatWidget() {
                                 <Send className="h-4 w-4" />
                                 <span className="sr-only">发送</span>
                             </Button>
-                         </div>
+                        </div>
                     </div>
                 </CardFooter>
             </Card>
         </div>
     );
 }
+

@@ -43,6 +43,7 @@ export default function WorkbenchPage() {
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchAllConversations = async () => {
     try {
@@ -59,7 +60,8 @@ export default function WorkbenchPage() {
 
     const agentChannel = pusherClient.subscribe('agent-dashboard');
 
-    agentChannel.bind('new-conversation', (newConv: Conversation) => {
+    agentChannel.bind('new-conversation', (newConvData: string) => {
+      const newConv: Conversation = JSON.parse(newConvData);
       setConversations(prev => {
         const newConvos = new Map(prev);
         if (!newConvos.has(newConv.id)) {
@@ -131,14 +133,18 @@ export default function WorkbenchPage() {
 
     // Fetch history if it's not already loaded
     const currentConvo = conversations.get(id);
-    if (currentConvo && currentConvo.messages.length === 0) {
+    // This is temporary, we'll fetch from a real backend later
+    if (currentConvo && currentConvo.messages.length <= 1) { 
         try {
             const response = await fetch(`/api/stream-chat?conversationId=${id}`);
             const data: Conversation = await response.json();
             if (data && data.messages) {
                  setConversations(prev => {
                     const newConvos = new Map(prev);
-                    newConvos.set(id, { ...data, unread: 0 });
+                    const existingConvo = newConvos.get(id);
+                    if (existingConvo) {
+                      newConvos.set(id, { ...existingConvo, messages: data.messages, unread: 0 });
+                    }
                     return newConvos;
                  });
             }
@@ -190,6 +196,19 @@ export default function WorkbenchPage() {
     }
   };
 
+  const handleImageUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  const onFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    // TODO: Implement actual file upload logic
+    console.log("Selected file:", file.name);
+    // For now, just send a text message indicating a file was "sent"
+    setInputValue(`[文件: ${file.name}]`);
+  };
+
   const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
     const lastMsgA = a.messages[a.messages.length - 1]?.timestamp;
@@ -231,7 +250,7 @@ export default function WorkbenchPage() {
               <div className="flex-1 overflow-hidden">
                 <div className="flex justify-between items-center">
                   <h3 className="font-semibold truncate">{convo.name}</h3>
-                  {convo.messages.length > 0 && <span className="text-xs text-muted-foreground">{new Date(convo.messages[convo.messages.length-1].timestamp).toLocaleTimeString()}</span>}
+                  {convo.messages.length > 0 && <span className="text-xs text-muted-foreground">{new Date(convo.messages[convo.messages.length-1].timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                 </div>
                 <div className="flex justify-between items-start">
                   <p className="text-sm text-muted-foreground truncate">{convo.messages[convo.messages.length - 1]?.text || '...新会话...'}</p>
@@ -307,7 +326,8 @@ export default function WorkbenchPage() {
                     <div className="flex items-center justify-between mt-2">
                         <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Smile className="h-5 w-5 text-muted-foreground" /></Button>
-                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
+                            <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
+                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive} onClick={handleImageUpload}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
                         </div>
                         <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive}>
