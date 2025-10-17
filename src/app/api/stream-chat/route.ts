@@ -56,12 +56,14 @@ export async function POST(req: NextRequest) {
         createdAt: new Date().toISOString(),
         isActive: true, // Mark as active
       };
-      await kv.set(`${CONVERSATION_PREFIX}${currentConversationId}`, conversationData);
+    } else {
+        // If it's not a new conversation, we must fetch the existing data.
+        conversationData = await kv.get(`${CONVERSATION_PREFIX}${currentConversationId}`);
     }
 
-    if (!currentConversationId) {
-      // This case should ideally not be hit if new conversation logic is sound.
-      return NextResponse.json({ error: 'Conversation not found and could not be created' }, { status: 404 });
+    if (!currentConversationId || !conversationData) {
+        // This case should ideally not be hit if new conversation logic is sound.
+        return NextResponse.json({ error: `Conversation with ID ${currentConversationId} not found.` }, { status: 404 });
     }
 
     const newMessage = {
@@ -73,18 +75,10 @@ export async function POST(req: NextRequest) {
     };
     
     // Append message to conversation in KV
-    // Use conversationData if it was just created, otherwise fetch from KV.
-    const conversation: any = conversationData || await kv.get(`${CONVERSATION_PREFIX}${currentConversationId}`);
-    
-    // CRITICAL FIX: Check if conversation exists before trying to modify it.
-    if (!conversation) {
-        return NextResponse.json({ error: `Conversation with ID ${currentConversationId} not found.` }, { status: 404 });
-    }
-
-    conversation.messages.push(newMessage);
+    conversationData.messages.push(newMessage);
     // Also update active status on new message
-    conversation.isActive = true; 
-    await kv.set(`${CONVERSATION_PREFIX}${currentConversationId}`, conversation);
+    conversationData.isActive = true; 
+    await kv.set(`${CONVERSATION_PREFIX}${currentConversationId}`, conversationData);
 
 
     // Define the Pusher channel
@@ -92,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     if (isNewConversation) {
         // Trigger an event for agents to discover the new conversation
-        await pusher.trigger('agent-dashboard', 'new-conversation', JSON.stringify(conversation));
+        await pusher.trigger('agent-dashboard', 'new-conversation', JSON.stringify(conversationData));
     }
 
     // Trigger Pusher event
@@ -109,4 +103,3 @@ export async function POST(req: NextRequest) {
     }, { status: 500 });
   }
 }
-
