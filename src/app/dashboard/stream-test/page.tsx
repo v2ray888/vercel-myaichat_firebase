@@ -125,7 +125,7 @@ export default function StreamTestPage() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="输入消息..."
-            disabled={!isstreaming}
+            disabled={!isStreaming}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
           />
           <Button onClick={handleSendMessage} disabled={!isStreaming}>
