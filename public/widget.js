@@ -1,82 +1,49 @@
-// This script is responsible for embedding the chat widget into a host website.
 
 (function() {
-    //
-    // --- Configuration ---
-    //
-    const WIDGET_ICON_SIZE = '80px'; // Includes padding for the button
-    const WIDGET_CARD_WIDTH = '384px'; // max-w-sm
-    const WIDGET_CARD_HEIGHT = '70vh'; // from component
-    const IFRAME_ID = 'zhiliaotong-iframe';
-    // -------------------
-
-    // Function to get the appId from the global settings object
-    function getAppId() {
-        if (window.zhiliaotongSettings && window.zhiliaotongSettings.appId) {
-            return window.zhiliaotongSettings.appId;
-        }
-        console.warn("智聊通: 未找到 appId, 小部件可能无法正常工作。请确保 window.zhiliaotongSettings.appId 已设置。");
-        return null;
+  // Wait for the DOM to be fully loaded
+  document.addEventListener("DOMContentLoaded", function() {
+    // Find the script tag itself to read the settings
+    const scriptTag = document.currentScript;
+    if (!scriptTag) {
+      console.error("ZhiLiaoTong: Could not find the script tag. Please ensure the script is loaded correctly.");
+      return;
+    }
+    
+    // Get the appId from the window settings object
+    const appId = window.zhiliaotongSettings?.appId;
+    if (!appId) {
+      console.error("ZhiLiaoTong: appId is not defined. Please set window.zhiliaotongSettings.appId.");
+      return;
     }
 
-    // Function to create and style the iframe
-    function createWidgetIframe(appId) {
-        const iframe = document.createElement('iframe');
-        iframe.id = IFRAME_ID;
-        iframe.src = `${window.location.origin}/widget?appId=${appId}`;
-        iframe.style.border = 'none';
-        iframe.style.position = 'fixed';
-        iframe.style.bottom = '1rem';
-        iframe.style.right = '1rem';
-        iframe.style.width = WIDGET_ICON_SIZE;
-        iframe.style.height = WIDGET_ICON_SIZE;
-        iframe.style.transition = 'width 0.3s ease, height 0.3s ease';
-        iframe.style.overflow = 'hidden';
-        iframe.style.backgroundColor = 'transparent';
-        iframe.style.zIndex = '9999';
-        
-        return iframe;
-    }
+    // Determine the origin of the widget script to construct the iframe URL
+    // This makes it work in development, preview, and production
+    const scriptSrc = new URL(scriptTag.src);
+    const widgetHost = scriptSrc.origin;
 
-    // Main script execution
-    function init() {
-        // Ensure the script runs only once
-        if (document.getElementById(IFRAME_ID)) {
-            return;
-        }
+    // Create the iframe element
+    const iframe = document.createElement('iframe');
+    
+    // Construct the URL for the widget page
+    const iframeUrl = new URL('/widget', widgetHost);
+    iframeUrl.searchParams.set('appId', appId);
+    iframe.src = iframeUrl.toString();
 
-        const appId = getAppId();
-        if (!appId) {
-            return;
-        }
-        
-        const iframe = createWidgetIframe(appId);
-        document.body.appendChild(iframe);
+    // Style the iframe to be a transparent overlay where the widget will live
+    iframe.style.position = 'fixed';
+    iframe.style.bottom = '0';
+    iframe.style.right = '0';
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.maxWidth = '420px'; // Max width of the expanded chat card
+    iframe.style.maxHeight = '800px'; // Max height to contain the widget
+    iframe.style.border = 'none';
+    iframe.style.backgroundColor = 'transparent';
+    iframe.style.zIndex = '999999999';
+    iframe.setAttribute('allowtransparency', 'true');
+    iframe.setAttribute('frameborder', '0');
 
-        // Listen for resize messages from the iframe
-        window.addEventListener('message', (event) => {
-             // Basic security: check the origin of the message
-            if (event.origin !== window.location.origin) {
-                return;
-            }
-
-            if (event.data && event.data.type === 'zhiliaotong-resize') {
-                if (event.data.isOpen) {
-                    iframe.style.width = WIDGET_CARD_WIDTH;
-                    iframe.style.height = WIDGET_CARD_HEIGHT;
-                } else {
-                    iframe.style.width = WIDGET_ICON_SIZE;
-                    iframe.style.height = WIDGET_ICON_SIZE;
-                }
-            }
-        });
-    }
-
-    // Wait for the DOM to be fully loaded before initializing
-    if (document.readyState === 'complete') {
-        init();
-    } else {
-        window.addEventListener('load', init);
-    }
-
+    // Append the iframe to the body of the host page
+    document.body.appendChild(iframe);
+  });
 })();
