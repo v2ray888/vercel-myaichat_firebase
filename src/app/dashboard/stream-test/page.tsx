@@ -27,6 +27,8 @@ export default function StreamTestPage() {
         headers: { 'Content-Type': 'text/plain' },
         body: transformStream.readable,
         signal: abortControllerRef.current.signal,
+        // @ts-ignore
+        duplex: 'half',
       });
 
       if (!response.body) {
@@ -74,7 +76,11 @@ export default function StreamTestPage() {
       abortControllerRef.current.abort();
     }
     if (streamWriterRef.current) {
-      streamWriterRef.current.close();
+      try {
+        streamWriterRef.current.close();
+      } catch (e) {
+        console.warn("Error closing stream writer:", e);
+      }
     }
   };
 
@@ -127,6 +133,19 @@ export default function StreamTestPage() {
             发送 <Send className="ml-2 h-4 w-4" />
           </Button>
         </CardFooter>
+      </Card>
+      <Card>
+        <CardHeader>
+            <CardTitle>说明</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground space-y-2">
+            <p>此页面演示了如何使用 Streamable HTTP (Fetch API 的 `ReadableStream` 和 `TransformStream`) 实现单一 HTTP 请求下的双向实时通信。</p>
+            <p>1. 点击 <strong>开始连接</strong>，浏览器会向 <code>/api/stream-chat</code> 发起一个 POST 请求。该请求的 `body` 是一个可读流，允许客户端随时向服务器发送数据。</p>
+            <p>2. 服务器接收到请求后，会保持连接开放，并将收到的客户端消息加上 "Echo: " 前缀后，通过响应流发送回客户端。</p>
+            <p>3. 服务器还会每3秒发送一个 "ping" 消息以保持连接活跃。</p>
+            <p>4. 在输入框中发送消息，您会看到您的消息和服务器的 "Echo" 响应实时出现在聊天窗口中。</p>
+            <p>5. 点击 <strong>断开连接</strong> 来关闭流并中止请求。</p>
+        </CardContent>
       </Card>
     </div>
   );
