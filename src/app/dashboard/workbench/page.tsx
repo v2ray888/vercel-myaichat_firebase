@@ -85,9 +85,11 @@ export default function WorkbenchPage() {
     });
 
     // Fetch message history for the selected conversation
-    await fetchConversationHistory(id);
+    if (conversations.get(id)?.messages.length === 0) {
+      await fetchConversationHistory(id);
+    }
 
-  }, []);
+  }, [conversations]);
 
   // Effect for initializing and fetching initial data
   useEffect(() => {
@@ -176,11 +178,14 @@ export default function WorkbenchPage() {
     subscribeToConversations(conversationIds);
     
     // Also re-subscribe when conversations map changes
-    const newConversationIds = Array.from(conversations.keys());
-    const addedIds = newConversationIds.filter(id => !conversationChannels.has(id));
-    if (addedIds.length > 0) {
-      subscribeToConversations(addedIds);
-    }
+    const handleNewConversation = (conv: Conversation) => {
+      if (!conversationChannels.has(conv.id)) {
+        subscribeToConversations([conv.id]);
+      }
+    };
+
+    const newConversationIds = Array.from(conversations.values());
+    newConversationIds.forEach(conv => handleNewConversation(conv));
 
 
     return () => {

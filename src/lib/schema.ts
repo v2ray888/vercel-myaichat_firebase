@@ -27,7 +27,7 @@ export const settings = pgTable('settings', {
 export const conversations = pgTable('conversations', {
     id: uuid('id').primaryKey().defaultRandom(),
     customerName: varchar('customer_name', { length: 255 }),
-    assigneeId: uuid('assignee_id').references(() => users.id),
+    // assigneeId: uuid('assignee_id').references(() => users.id), // This was causing issues
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
     isActive: boolean('is_active').default(true),
