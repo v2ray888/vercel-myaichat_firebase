@@ -2,7 +2,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react';
-import { MessageCircle, X, Send, Bot, User, CornerDownLeft } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -11,14 +11,31 @@ import { cn } from '@/lib/utils';
 import { Separator } from './ui/separator';
 import { Input } from './ui/input';
 import Image from 'next/image';
+import Pusher from 'pusher-js';
 
 type Message = {
   id: string;
   text: string;
   sender: 'user' | 'bot' | 'agent' | 'system';
   timestamp: string;
-  senderStreamId?: string;
 };
+
+// Ensure this is initialized only once per client
+let pusherClient: Pusher | null = null;
+
+const getPusherClient = () => {
+    if (!pusherClient) {
+        pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+            cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+            authEndpoint: '/api/pusher-auth',
+             auth: {
+                headers: { 'Content-Type': 'application/json' },
+            }
+        });
+    }
+    return pusherClient;
+}
+
 
 export default function ChatWidget() {
     const [isOpen, setIsOpen] = useState(false);
@@ -27,74 +44,68 @@ export default function ChatWidget() {
     ]);
     const [inputValue, setInputValue] = useState('');
     const [conversationId, setConversationId] = useState<string | null>(null);
-    const [streamId, setStreamId] = useState<string | null>(null);
     const [isConnecting, setIsConnecting] = useState(false);
 
-    const eventSourceRef = useRef<EventSource | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const brandLogo = PlaceHolderImages.find(p => p.id === 'brand-logo');
 
-    const startStreaming = (convId: string | null) => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-      setIsConnecting(true);
-
-      const url = `/api/stream-chat?role=customer${convId ? `&conversationId=${convId}` : ''}`;
-      const es = new EventSource(url);
-      eventSourceRef.current = es;
-
-      es.onopen = () => {
-        setIsConnecting(false);
-        console.log("Customer stream connected.");
-      };
-
-      es.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+    const subscribeToChannel = (convId: string) => {
+        const pusher = getPusherClient();
+        const channelName = `private-conversation-${convId}`;
         
-        if (data.type === 'connected') {
-            setStreamId(data.streamId);
-        } else if (data.type === 'newMessage') {
-            const msg = data.message as Message;
-            // Only add message if it's not from this client
-            if (msg.senderStreamId !== streamId) {
+        // Unsubscribe from any old channel
+        if (pusher.channel(channelName)) {
+           pusher.unsubscribe(channelName);
+        }
+        
+        const channel = pusher.subscribe(channelName);
+        setIsConnecting(true);
+
+        channel.bind('pusher:subscription_succeeded', () => {
+            setIsConnecting(false);
+            console.log("Customer stream connected to", channelName);
+        });
+        
+        channel.bind('pusher:subscription_error', (status: any) => {
+            console.error("Pusher subscription failed:", status);
+            setIsConnecting(false);
+            setMessages(prev => [...prev, { id: 'error-msg', text: `连接失败，请重试`, sender: 'system', timestamp: new Date().toISOString() }]);
+        });
+
+        channel.bind('new-message', (msg: Message) => {
+            if (msg.sender === 'agent') {
                 setMessages((prev) => [...prev, msg]);
             }
-        } else if (data.type !== 'ping') {
-             // You can handle other event types here if needed
-        }
-      };
-
-      es.onerror = (error) => {
-          console.error("EventSource failed:", error);
-          setIsConnecting(false);
-          setMessages(prev => [...prev, { id: 'error-msg', text: `连接中断`, sender: 'system', timestamp: new Date().toISOString() }]);
-          es.close();
-      };
-    };
-
+        });
+    }
+    
     useEffect(() => {
         if (isOpen) {
-            startStreaming(conversationId);
+            // Restore conversation ID from session storage if it exists
+            const storedConvId = sessionStorage.getItem('chat-conversation-id');
+            if (storedConvId) {
+                setConversationId(storedConvId);
+                subscribeToChannel(storedConvId);
+                // fetch history
+                 fetch(`/api/stream-chat?conversationId=${storedConvId}`).then(res => res.json()).then(data => {
+                    if (data && data.messages && data.messages.length > 0) {
+                        const historyMessages = data.messages.map((msg: any) => ({...msg, sender: msg.sender === 'user' ? 'user' : 'agent'}));
+                        setMessages(prev => [prev[0], ...historyMessages]);
+                    }
+                 })
+            }
         } else {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-                eventSourceRef.current = null;
-                setStreamId(null);
-                setIsConnecting(false);
+            if (pusherClient && conversationId) {
+                pusherClient.unsubscribe(`private-conversation-${conversationId}`);
             }
         }
+
         return () => {
-            eventSourceRef.current?.close();
+             if (pusherClient && conversationId) {
+                pusherClient.unsubscribe(`private-conversation-${conversationId}`);
+             }
         };
     }, [isOpen]);
-
-    useEffect(() => {
-      if (conversationId && isOpen) {
-        startStreaming(conversationId);
-      }
-    }, [conversationId]);
-
 
     useEffect(() => {
         if (isOpen) {
@@ -103,7 +114,7 @@ export default function ChatWidget() {
     }, [messages, isOpen]);
 
     const handleSendMessage = async () => {
-        if (!inputValue.trim() || !streamId) return;
+        if (!inputValue.trim()) return;
 
         const userMessage: Message = {
             id: crypto.randomUUID(),
@@ -121,15 +132,17 @@ export default function ChatWidget() {
                   message: inputValue, 
                   conversationId: conversationId,
                   role: 'customer',
-                  senderName: `访客 ${streamId?.substring(0, 6) || ''}`,
-                  streamId: streamId
+                  senderName: `访客 ${conversationId?.substring(0, 6) || '新'}`,
                 }),
             });
             if (!response.ok) throw new Error('发送失败');
 
-            if (!conversationId) {
-              const { newConversationId } = await response.json();
-              setConversationId(newConversationId);
+            const { newConversationId } = await response.json();
+            
+            if (!conversationId && newConversationId) {
+                setConversationId(newConversationId);
+                sessionStorage.setItem('chat-conversation-id', newConversationId);
+                subscribeToChannel(newConversationId);
             }
 
         } catch (error: any) {
@@ -168,7 +181,7 @@ export default function ChatWidget() {
                         <div>
                             <p className="font-semibold text-base">智聊通客服</p>
                             <p className="text-xs text-primary-foreground/80">
-                                {isConnecting ? '正在连接...' : (streamId ? '在线' : '已离线')}
+                                {isConnecting ? '正在连接...' : (pusherClient?.connection.state === 'connected' ? '在线' : '已离线')}
                             </p>
                         </div>
                     </div>
@@ -226,13 +239,13 @@ export default function ChatWidget() {
                                 }}
                                 placeholder={isConnecting ? "正在连接..." : "输入您的问题..."}
                                 className="pr-12"
-                                disabled={isConnecting || !streamId}
+                                disabled={isConnecting && !conversationId}
                             />
                             <Button 
                                 onClick={handleSendMessage} 
                                 size="icon" 
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                                disabled={!inputValue.trim() || isConnecting || !streamId}
+                                disabled={!inputValue.trim() || (isConnecting && !conversationId)}
                             >
                                 <Send className="h-4 w-4" />
                                 <span className="sr-only">发送</span>

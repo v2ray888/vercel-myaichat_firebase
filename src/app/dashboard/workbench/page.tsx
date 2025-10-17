@@ -10,14 +10,14 @@ import { cn } from "@/lib/utils"
 import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare } from "lucide-react"
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Card, CardContent } from "@/components/ui/card"
+import Pusher from 'pusher-js';
 
 type Message = {
   id: string;
   text: string;
-  sender: 'agent' | 'customer';
+  sender: 'agent' | 'customer' | 'user'; // user is for local optimistic updates
   timestamp: string;
   conversationId: string;
-  senderStreamId?: string;
 };
 
 type Conversation = {
@@ -28,88 +28,98 @@ type Conversation = {
   isActive?: boolean;
 };
 
+// Ensure this is initialized only once
+const pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+    cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+    authEndpoint: '/api/pusher-auth',
+    auth: {
+        headers: { 'Content-Type': 'application/json' },
+    }
+});
+
 export default function WorkbenchPage() {
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
-  const [streamId, setStreamId] = useState<string | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
 
-  const startStreaming = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+  const fetchAllConversations = async () => {
+    try {
+      // In a real app, you'd fetch this from an API endpoint that gets all conversations.
+      // For now, we rely on Pusher for new conversations.
+      // You could implement an endpoint that lists keys from Vercel KV `kv.keys('conversation:*')`
+    } catch (error) {
+      console.error("Failed to fetch conversations:", error);
     }
-
-    const es = new EventSource('/api/stream-chat?role=agent');
-    eventSourceRef.current = es;
-
-    es.onopen = () => {
-        console.log("Agent stream connected.");
-    };
-    
-    es.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected') {
-        setStreamId(data.streamId);
-      } else {
-        setConversations(prev => {
-          const newConvos = new Map(prev);
-          
-          if (data.type === 'conversationList') {
-              data.conversations.forEach((conv: Conversation) => {
-                  if (!newConvos.has(conv.id)) {
-                      newConvos.set(conv.id, { ...conv, messages: conv.messages || [], isActive: true });
-                  }
-              });
-          } else if (data.type === 'newConversation') {
-              const newConv = { ...data.conversation, messages: [], isActive: true };
-              newConvos.set(data.conversation.id, newConv);
-          } else if (data.type === 'newMessage') {
-              const msg = data.message as Message;
-              const convo = newConvos.get(msg.conversationId);
-              if (convo) {
-                  // Avoid adding duplicate messages
-                  if (convo.messages.some(m => m.id === msg.id)) {
-                    return newConvos;
-                  }
-                  const newMessages = [...convo.messages, msg];
-                  const unread = (msg.conversationId !== selectedConversationId && msg.sender === 'customer') ? (convo.unread || 0) + 1 : convo.unread;
-                  newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread });
-              }
-          } else if (data.type === 'customerLeft') {
-              const convo = newConvos.get(data.conversationId);
-              if (convo) {
-                  newConvos.set(data.conversationId, { ...convo, isActive: false });
-              }
-          }
-          return newConvos;
-        });
-      }
-    };
-    
-    es.onerror = (error) => {
-        console.error("EventSource failed:", error);
-        es.close();
-        // Optionally, try to reconnect after a delay
-    };
   };
-  
+
   useEffect(() => {
-    startStreaming();
+    fetchAllConversations();
+
+    const agentChannel = pusherClient.subscribe('agent-dashboard');
+
+    agentChannel.bind('new-conversation', (newConv: Conversation) => {
+      setConversations(prev => {
+        const newConvos = new Map(prev);
+        if (!newConvos.has(newConv.id)) {
+          newConvos.set(newConv.id, { ...newConv, isActive: true, unread: 1 });
+        }
+        return newConvos;
+      });
+    });
+
+    // We need to subscribe to all channels this agent is part of.
+    // In a real app, you would fetch the list of conversations an agent is assigned to.
+    // For this demo, we will subscribe as new conversations come in.
+    
     return () => {
-      eventSourceRef.current?.close();
+        pusherClient.unsubscribe('agent-dashboard');
+        // Unsubscribe from all conversation channels
+        conversations.forEach(convo => {
+            pusherClient.unsubscribe(`private-conversation-${convo.id}`);
+        });
     }
   }, []);
+
+  useEffect(() => {
+     // Subscribe to channels for existing and new conversations
+    conversations.forEach(convo => {
+        const channelName = `private-conversation-${convo.id}`;
+        // Prevent subscribing multiple times
+        if (pusherClient.channel(channelName)) return;
+
+        const channel = pusherClient.subscribe(channelName);
+        channel.bind('new-message', (msg: Message) => {
+            setConversations(prev => {
+                const newConvos = new Map(prev);
+                const existingConvo = newConvos.get(msg.conversationId);
+                if (existingConvo) {
+                    if (!existingConvo.messages.some(m => m.id === msg.id)) {
+                       const unread = (msg.conversationId !== selectedConversationId && msg.sender === 'customer') ? (existingConvo.unread || 0) + 1 : existingConvo.unread;
+                       newConvos.set(msg.conversationId, {
+                           ...existingConvo,
+                           messages: [...existingConvo.messages, msg],
+                           unread,
+                       });
+                    }
+                }
+                return newConvos;
+            });
+        });
+    });
+  }, [conversations, selectedConversationId]);
+
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversations, selectedConversationId]);
 
-  const handleSelectConversation = (id: string) => {
+
+  const handleSelectConversation = async (id: string) => {
     setSelectedConversationId(id);
+    
+    // Mark as read
     setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(id);
@@ -118,10 +128,28 @@ export default function WorkbenchPage() {
         }
         return newConvos;
     });
+
+    // Fetch history if it's not already loaded
+    const currentConvo = conversations.get(id);
+    if (currentConvo && currentConvo.messages.length === 0) {
+        try {
+            const response = await fetch(`/api/stream-chat?conversationId=${id}`);
+            const data: Conversation = await response.json();
+            if (data && data.messages) {
+                 setConversations(prev => {
+                    const newConvos = new Map(prev);
+                    newConvos.set(id, { ...data, unread: 0 });
+                    return newConvos;
+                 });
+            }
+        } catch (error) {
+            console.error("Failed to fetch conversation history:", error);
+        }
+    }
   }
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !selectedConversationId || !streamId) return;
+    if (!inputValue.trim() || !selectedConversationId) return;
 
     const optimisticMessage: Message = {
       id: crypto.randomUUID(),
@@ -129,7 +157,6 @@ export default function WorkbenchPage() {
       sender: 'agent',
       timestamp: new Date().toISOString(),
       conversationId: selectedConversationId,
-      senderStreamId: streamId,
     };
 
     // Optimistic update
@@ -155,7 +182,6 @@ export default function WorkbenchPage() {
           message: inputValue,
           conversationId: selectedConversationId,
           role: 'agent',
-          streamId: streamId,
         }),
       });
     } catch (error) {
