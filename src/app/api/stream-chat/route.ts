@@ -4,7 +4,7 @@
 // A Map to store active stream writers, keyed by a unique stream ID.
 // The value will be an object containing the writer, role, and conversationId
 const activeStreams = new Map<string, {
-  writer: TransformStreamDefaultWriter,
+  writer: WritableStreamDefaultWriter<Uint8Array>,
   role: 'agent' | 'customer',
   conversationId?: string | null
 }>();
@@ -53,7 +53,16 @@ function broadcast(message: object, targetRole?: 'agent' | 'customer', targetCon
 
 // Periodically send a ping to keep connections alive
 setInterval(() => {
-  broadcast({ type: 'ping', timestamp: new Date().toISOString() });
+  // SSE comments are used for pings
+  const pingMessage = new TextEncoder().encode(': ping\n\n');
+  for (const [id, stream] of activeStreams.entries()) {
+      try {
+        stream.writer.write(pingMessage);
+      } catch (e) {
+        console.error('Error pinging stream for client:', id, e);
+        activeStreams.delete(id);
+      }
+  }
 }, 10000);
 
 
@@ -69,6 +78,9 @@ export async function GET(req: Request) {
   // Store the writer, role, and conversationId
   activeStreams.set(streamId, { writer, role, conversationId });
   console.log(`Stream ${streamId} (${role}${conversationId ? ' - ' + conversationId : ''}) connected. Total streams: ${activeStreams.size}`);
+
+  const initialMessage = { type: 'connected', streamId };
+  writer.write(new TextEncoder().encode(`data: ${JSON.stringify(initialMessage)}\n\n`));
 
   // When an agent connects, send them the list of current conversations
   if (role === 'agent') {
@@ -95,7 +107,6 @@ export async function GET(req: Request) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'X-Stream-Id': streamId,
     },
   });
 }
@@ -103,7 +114,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { message, conversationId, role, senderName } = await req.json();
+    const { message, conversationId, role, senderName, streamId } = await req.json();
 
     if (!message || !role) {
       return new Response('Missing message or role', { status: 400 });
@@ -132,6 +143,7 @@ export async function POST(req: Request) {
       id: crypto.randomUUID(),
       text: message,
       sender: role,
+      senderStreamId: streamId, // Include sender's streamId
       conversationId: currentConversationId,
       timestamp: new Date().toISOString(),
     };
@@ -142,13 +154,25 @@ export async function POST(req: Request) {
         conversation.messages.push(newMessage);
     }
 
-    // Broadcast message to the other party
+    // Broadcast message to relevant parties
     if (role === 'customer') {
       // Customer message goes to all agents
       broadcast({ type: 'newMessage', message: newMessage }, 'agent');
     } else if (role === 'agent') {
       // Agent message goes to the specific customer
       broadcast({ type: 'newMessage', message: newMessage }, 'customer', currentConversationId);
+    }
+    
+    // Also send the message back to the original sender to confirm it was sent
+    // and to handle UI updates consistently. The client will filter it if it's an optimistic update.
+    const senderStream = activeStreams.get(streamId);
+    if (senderStream) {
+      try {
+        senderStream.writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'newMessage', message: newMessage })}\n\n`));
+      } catch (e) {
+        console.error('Error writing back to sender:', e);
+        activeStreams.delete(streamId);
+      }
     }
     
     return new Response(JSON.stringify({ newConversationId: currentConversationId }), { status: 200, headers: { 'Content-Type': 'application/json' } });

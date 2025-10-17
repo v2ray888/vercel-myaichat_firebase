@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -16,6 +17,7 @@ type Message = {
   sender: 'agent' | 'customer';
   timestamp: string;
   conversationId: string;
+  senderStreamId?: string;
 };
 
 type Conversation = {
@@ -30,82 +32,75 @@ export default function WorkbenchPage() {
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const [streamId, setStreamId] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
 
   const startStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
-    abortControllerRef.current = new AbortController();
 
-    const fetchStream = async () => {
-      try {
-        const response = await fetch('/api/stream-chat?role=agent', {
-          method: 'GET',
-          signal: abortControllerRef.current?.signal,
-        });
+    const es = new EventSource('/api/stream-chat?role=agent');
+    eventSourceRef.current = es;
 
-        if (!response.body) return;
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+    es.onopen = () => {
+        console.log("Agent stream connected.");
+    };
+    
+    es.onmessage = (event) => {
+      const data = JSON.parse(event.data);
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n\n').filter(Boolean);
-
-          lines.forEach(line => {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.substring(6));
-              
-              setConversations(prev => {
-                const newConvos = new Map(prev);
-                
-                if (data.type === 'conversationList') {
-                    data.conversations.forEach((conv: Conversation) => {
-                        if (!newConvos.has(conv.id)) {
-                            newConvos.set(conv.id, { ...conv, messages: conv.messages || [], isActive: true });
-                        }
-                    });
-                } else if (data.type === 'newConversation') {
-                    const newConv = { ...data.conversation, messages: [], isActive: true };
-                    newConvos.set(data.conversation.id, newConv);
-                } else if (data.type === 'newMessage') {
-                    const msg = data.message as Message;
-                    const convo = newConvos.get(msg.conversationId);
-                    if (convo) {
-                        const newMessages = [...convo.messages, msg];
-                        const unread = (msg.conversationId !== selectedConversationId && msg.sender === 'customer') ? (convo.unread || 0) + 1 : convo.unread;
-                        newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread });
-                    }
-                } else if (data.type === 'customerLeft') {
-                    const convo = newConvos.get(data.conversationId);
-                    if (convo) {
-                        newConvos.set(data.conversationId, { ...convo, isActive: false });
-                    }
-                }
-                return newConvos;
+      if (data.type === 'connected') {
+        setStreamId(data.streamId);
+      } else {
+        setConversations(prev => {
+          const newConvos = new Map(prev);
+          
+          if (data.type === 'conversationList') {
+              data.conversations.forEach((conv: Conversation) => {
+                  if (!newConvos.has(conv.id)) {
+                      newConvos.set(conv.id, { ...conv, messages: conv.messages || [], isActive: true });
+                  }
               });
-            }
-          });
-        }
-      } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          console.error("Streaming error:", error);
-        }
+          } else if (data.type === 'newConversation') {
+              const newConv = { ...data.conversation, messages: [], isActive: true };
+              newConvos.set(data.conversation.id, newConv);
+          } else if (data.type === 'newMessage') {
+              const msg = data.message as Message;
+              const convo = newConvos.get(msg.conversationId);
+              if (convo) {
+                  // Avoid adding duplicate messages
+                  if (convo.messages.some(m => m.id === msg.id)) {
+                    return newConvos;
+                  }
+                  const newMessages = [...convo.messages, msg];
+                  const unread = (msg.conversationId !== selectedConversationId && msg.sender === 'customer') ? (convo.unread || 0) + 1 : convo.unread;
+                  newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread });
+              }
+          } else if (data.type === 'customerLeft') {
+              const convo = newConvos.get(data.conversationId);
+              if (convo) {
+                  newConvos.set(data.conversationId, { ...convo, isActive: false });
+              }
+          }
+          return newConvos;
+        });
       }
     };
-    fetchStream();
+    
+    es.onerror = (error) => {
+        console.error("EventSource failed:", error);
+        es.close();
+        // Optionally, try to reconnect after a delay
+    };
   };
   
   useEffect(() => {
     startStreaming();
     return () => {
-      abortControllerRef.current?.abort();
+      eventSourceRef.current?.close();
     }
   }, []);
 
@@ -126,7 +121,31 @@ export default function WorkbenchPage() {
   }
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !selectedConversationId) return;
+    if (!inputValue.trim() || !selectedConversationId || !streamId) return;
+
+    const optimisticMessage: Message = {
+      id: crypto.randomUUID(),
+      text: inputValue,
+      sender: 'agent',
+      timestamp: new Date().toISOString(),
+      conversationId: selectedConversationId,
+      senderStreamId: streamId,
+    };
+
+    // Optimistic update
+    setConversations(prev => {
+      const newConvos = new Map(prev);
+      const convo = newConvos.get(selectedConversationId);
+      if (convo) {
+        newConvos.set(selectedConversationId, {
+          ...convo,
+          messages: [...convo.messages, optimisticMessage]
+        });
+      }
+      return newConvos;
+    });
+    setInputValue('');
+
 
     try {
       await fetch('/api/stream-chat', {
@@ -135,18 +154,25 @@ export default function WorkbenchPage() {
         body: JSON.stringify({
           message: inputValue,
           conversationId: selectedConversationId,
-          role: 'agent'
+          role: 'agent',
+          streamId: streamId,
         }),
       });
-      setInputValue('');
     } catch (error) {
       console.error("Failed to send message:", error);
-      // Optionally show an error to the agent
+      // Optionally show an error to the agent and revert optimistic update
     }
   };
 
   const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
-  const conversationArray = Array.from(conversations.values());
+  const conversationArray = Array.from(conversations.values()).sort((a, b) => {
+    const lastMsgA = a.messages[a.messages.length - 1]?.timestamp;
+    const lastMsgB = b.messages[b.messages.length - 1]?.timestamp;
+    if (!lastMsgA) return 1;
+    if (!lastMsgB) return -1;
+    return new Date(lastMsgB).getTime() - new Date(lastMsgA).getTime();
+  });
+
 
   return (
     <div className="h-[calc(100vh-60px-3rem)] grid md:grid-cols-[300px_1fr] lg:grid-cols-[350px_1fr]">

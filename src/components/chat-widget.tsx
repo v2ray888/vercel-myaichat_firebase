@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useRef } from 'react';
@@ -16,6 +17,7 @@ type Message = {
   text: string;
   sender: 'user' | 'bot' | 'agent' | 'system';
   timestamp: string;
+  senderStreamId?: string;
 };
 
 export default function ChatWidget() {
@@ -28,84 +30,70 @@ export default function ChatWidget() {
     const [streamId, setStreamId] = useState<string | null>(null);
     const [isConnecting, setIsConnecting] = useState(false);
 
-    const abortControllerRef = useRef<AbortController | null>(null);
+    const eventSourceRef = useRef<EventSource | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const brandLogo = PlaceHolderImages.find(p => p.id === 'brand-logo');
 
-    const startStreaming = async (convId: string | null) => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+    const startStreaming = (convId: string | null) => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
-      abortControllerRef.current = new AbortController();
       setIsConnecting(true);
 
-      try {
-        const url = `/api/stream-chat?role=customer${convId ? `&conversationId=${convId}` : ''}`;
-        const response = await fetch(url, {
-          method: 'GET',
-          signal: abortControllerRef.current.signal,
-        });
+      const url = `/api/stream-chat?role=customer${convId ? `&conversationId=${convId}` : ''}`;
+      const es = new EventSource(url);
+      eventSourceRef.current = es;
 
-        if (!response.ok || !response.body) {
-          throw new Error('无法连接到聊天服务器');
-        }
-
-        const receivedStreamId = response.headers.get('X-Stream-Id');
-        setStreamId(receivedStreamId);
+      es.onopen = () => {
         setIsConnecting(false);
+        console.log("Customer stream connected.");
+      };
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
         
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n\n').filter(Boolean);
-
-          lines.forEach(line => {
-            if (line.startsWith('data: ')) {
-              const data = JSON.parse(line.substring(6));
-
-              // Filter out pings and messages sent by this same user
-              if (data.type === 'newMessage' && data.message.sender !== 'customer') {
-                setMessages((prev) => [...prev, data.message]);
-              }
+        if (data.type === 'connected') {
+            setStreamId(data.streamId);
+        } else if (data.type === 'newMessage') {
+            const msg = data.message as Message;
+            // Only add message if it's not from this client
+            if (msg.senderStreamId !== streamId) {
+                setMessages((prev) => [...prev, msg]);
             }
-          });
+        } else if (data.type !== 'ping') {
+             // You can handle other event types here if needed
         }
-      } catch (error: any) {
-        if (error.name !== 'AbortError') {
-          console.error("Streaming error:", error);
-          setMessages(prev => [...prev, { id: 'error-msg', text: `连接中断: ${error.message}`, sender: 'system', timestamp: new Date().toISOString() }]);
+      };
+
+      es.onerror = (error) => {
+          console.error("EventSource failed:", error);
           setIsConnecting(false);
-        }
-      }
+          setMessages(prev => [...prev, { id: 'error-msg', text: `连接中断`, sender: 'system', timestamp: new Date().toISOString() }]);
+          es.close();
+      };
     };
 
     useEffect(() => {
         if (isOpen) {
             startStreaming(conversationId);
         } else {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-                abortControllerRef.current = null;
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+                eventSourceRef.current = null;
                 setStreamId(null);
                 setIsConnecting(false);
             }
         }
         return () => {
-            abortControllerRef.current?.abort();
+            eventSourceRef.current?.close();
         };
     }, [isOpen]);
 
     useEffect(() => {
-      if (conversationId) {
-        // If we get a conversationId, we might need to restart the stream with it
-        if(isOpen) startStreaming(conversationId);
+      if (conversationId && isOpen) {
+        startStreaming(conversationId);
       }
-    }, [conversationId, isOpen])
+    }, [conversationId]);
 
 
     useEffect(() => {
@@ -115,7 +103,7 @@ export default function ChatWidget() {
     }, [messages, isOpen]);
 
     const handleSendMessage = async () => {
-        if (!inputValue.trim()) return;
+        if (!inputValue.trim() || !streamId) return;
 
         const userMessage: Message = {
             id: crypto.randomUUID(),
@@ -133,7 +121,8 @@ export default function ChatWidget() {
                   message: inputValue, 
                   conversationId: conversationId,
                   role: 'customer',
-                  senderName: `访客 ${streamId?.substring(0, 6) || ''}`
+                  senderName: `访客 ${streamId?.substring(0, 6) || ''}`,
+                  streamId: streamId
                 }),
             });
             if (!response.ok) throw new Error('发送失败');
@@ -237,13 +226,13 @@ export default function ChatWidget() {
                                 }}
                                 placeholder={isConnecting ? "正在连接..." : "输入您的问题..."}
                                 className="pr-12"
-                                disabled={isConnecting}
+                                disabled={isConnecting || !streamId}
                             />
                             <Button 
                                 onClick={handleSendMessage} 
                                 size="icon" 
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-                                disabled={!inputValue.trim() || isConnecting}
+                                disabled={!inputValue.trim() || isConnecting || !streamId}
                             >
                                 <Send className="h-4 w-4" />
                                 <span className="sr-only">发送</span>
