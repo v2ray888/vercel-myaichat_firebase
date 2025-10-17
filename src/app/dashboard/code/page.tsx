@@ -1,25 +1,64 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { Copy } from "lucide-react"
 
+type Settings = {
+  id: string;
+  // other settings properties are not needed for this page
+}
+
 export default function CodePage() {
   const { toast } = useToast()
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchSettings() {
+      try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) throw new Error("Failed to fetch settings");
+        const data = await response.json();
+        setSettings(data);
+      } catch (error) {
+        console.error(error);
+        toast({
+          variant: "destructive",
+          title: "加载失败",
+          description: "无法加载您的应用ID，请稍后重试。"
+        })
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchSettings();
+  }, [toast]);
+
   const codeSnippet = `<script>
   window.zhiliaotongSettings = {
-    appId: "YOUR_APP_ID",
+    appId: "${settings?.id || 'YOUR_APP_ID'}",
   };
 </script>
 <script src="https://cdn.zhiliaotong.com/widget.js" async defer></script>`;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(codeSnippet);
-    toast({
-      title: "已复制!",
-      description: "代码已成功复制到剪贴板。",
-    })
+    if (settings?.id) {
+        navigator.clipboard.writeText(codeSnippet);
+        toast({
+          title: "已复制!",
+          description: "代码已成功复制到剪贴板。",
+        })
+    } else {
+         toast({
+            variant: "destructive",
+            title: "复制失败",
+            description: "无法复制，因为应用ID不可用。"
+        })
+    }
   }
 
   return (
@@ -31,16 +70,23 @@ export default function CodePage() {
           <CardDescription>将此代码片段复制并粘贴到您的网站的 `&lt;head&gt;` 标签结束之前。</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="bg-muted p-4 rounded-lg overflow-x-auto relative group">
-            <pre>
-                <code className="font-code text-sm text-foreground">{codeSnippet}</code>
-            </pre>
-            <Button size="icon" variant="ghost" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={handleCopy}>
-                <Copy className="h-4 w-4"/>
-                <span className="sr-only">复制</span>
-            </Button>
-          </div>
-          <Button className="mt-4" onClick={handleCopy}>
+            {isLoading ? (
+                <div className="bg-muted p-4 rounded-lg">
+                    <Skeleton className="h-24 w-full" />
+                </div>
+            ) : (
+                 <div className="bg-muted p-4 rounded-lg overflow-x-auto relative group">
+                    <pre>
+                        <code className="font-code text-sm text-foreground">{codeSnippet}</code>
+                    </pre>
+                    <Button size="icon" variant="ghost" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={handleCopy} disabled={!settings?.id}>
+                        <Copy className="h-4 w-4"/>
+                        <span className="sr-only">复制</span>
+                    </Button>
+                 </div>
+            )}
+         
+          <Button className="mt-4" onClick={handleCopy} disabled={!settings?.id || isLoading}>
             <Copy className="mr-2 h-4 w-4" /> 复制代码
           </Button>
         </CardContent>

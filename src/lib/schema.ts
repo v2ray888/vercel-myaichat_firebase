@@ -11,6 +11,7 @@ export const users = pgTable('users', {
 
 export const settings = pgTable('settings', {
   id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).unique().notNull(),
   welcomeMessage: text('welcome_message').default('您好！我是智能客服，很高兴为您服务。'),
   autoOpenWidget: boolean('auto_open_widget').default(true),
   allowCustomerImageUpload: boolean('allow_customer_image_upload').default(true),
@@ -27,7 +28,6 @@ export const settings = pgTable('settings', {
 export const conversations = pgTable('conversations', {
     id: uuid('id').primaryKey().defaultRandom(),
     customerName: varchar('customer_name', { length: 255 }),
-    // assigneeId: uuid('assignee_id').references(() => users.id), // This was causing issues
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
     isActive: boolean('is_active').default(true),
