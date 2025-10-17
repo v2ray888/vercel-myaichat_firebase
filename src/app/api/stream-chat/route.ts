@@ -43,12 +43,13 @@ export async function POST(req: NextRequest) {
 
     let currentConversationId = conversationId;
     let isNewConversation = false;
+    let conversationData;
 
     // If it's a new customer message, create a conversation
     if (role === 'customer' && !currentConversationId) {
       isNewConversation = true;
       currentConversationId = crypto.randomUUID();
-      const conversationData = {
+      conversationData = {
         id: currentConversationId,
         name: senderName || `访客 ${currentConversationId.substring(0, 6)}`,
         messages: [],
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
     };
     
     // Append message to conversation in KV
-    const conversation: any = await kv.get(`${CONVERSATION_PREFIX}${currentConversationId}`);
+    const conversation: any = conversationData || await kv.get(`${CONVERSATION_PREFIX}${currentConversationId}`);
     if (conversation) {
       conversation.messages.push(newMessage);
       // Also update active status on new message
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     if (isNewConversation) {
         // Trigger an event for agents to discover the new conversation
-        await pusher.trigger('agent-dashboard', 'new-conversation', conversation);
+        await pusher.trigger('agent-dashboard', 'new-conversation', JSON.stringify(conversation));
     }
 
     // Trigger Pusher event
