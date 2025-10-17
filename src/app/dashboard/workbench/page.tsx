@@ -29,14 +29,47 @@ type Conversation = {
   isActive: boolean;
 };
 
+// Represents the latest message for display in the conversation list
+type LatestMessage = {
+  text: string;
+  timestamp: string;
+} | null;
+
 export default function WorkbenchPage() {
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
+  const [latestMessages, setLatestMessages] = useState<Map<string, LatestMessage>>(new Map());
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { session, isLoading: isSessionLoading } = useSession();
+  
+  const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
+  
+  // Fetches full message history for a specific conversation
+  const fetchConversationHistory = async (convId: string) => {
+    try {
+      const response = await fetch(`/api/stream-chat?conversationId=${convId}`);
+      const data: { messages: Message[] } = await response.json();
+      if (data && data.messages) {
+        setConversations(prev => {
+          const newConvos = new Map(prev);
+          const convo = newConvos.get(convId);
+          if (convo) {
+            newConvos.set(convId, { ...convo, messages: data.messages });
+          }
+          return newConvos;
+        });
+        if(data.messages.length > 0) {
+            const lastMsg = data.messages[data.messages.length - 1];
+            setLatestMessages(prev => new Map(prev).set(convId, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch conversation history:", error);
+    }
+  };
 
   const handleSelectConversation = useCallback(async (id: string) => {
     setSelectedConversationId(id);
@@ -51,45 +84,35 @@ export default function WorkbenchPage() {
         return newConvos;
     });
 
-    // Fetch full history if it seems only partially loaded
-    const currentConvo = conversations.get(id);
-    if (currentConvo && currentConvo.messages.length <= 1) { 
-        try {
-            const response = await fetch(`/api/stream-chat?conversationId=${id}`);
-            const data: { messages: Message[] } = await response.json();
-            
-            if (data && data.messages) {
-                 setConversations(prev => {
-                    const newConvos = new Map(prev);
-                    const existingConvo = newConvos.get(id);
-                    if (existingConvo) {
-                      // Simple merge and sort, avoiding duplicates
-                      const messageMap = new Map(existingConvo.messages.map(m => [m.id, m]));
-                      data.messages.forEach(msg => messageMap.set(msg.id, msg));
-                      const sortedMessages = Array.from(messageMap.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                      
-                      newConvos.set(id, { ...existingConvo, messages: sortedMessages, unread: 0 });
-                    }
-                    return newConvos;
-                 });
-            }
-        } catch (error) {
-            console.error("Failed to fetch conversation history:", error);
-        }
-    }
-  }, [conversations]);
+    // Fetch message history for the selected conversation
+    await fetchConversationHistory(id);
 
+  }, []);
 
+  // Effect for initializing and fetching initial data
   useEffect(() => {
     if (isSessionLoading || !session?.userId) return;
 
-    // Fetch initial list of conversations
+    // Fetch initial list of conversations (without messages)
     const fetchAllConversations = async () => {
         try {
             const response = await fetch(`/api/conversations`);
             if (response.ok) {
-                const convos: Conversation[] = await response.json();
-                setConversations(new Map(convos.map(c => [c.id, {...c, unread: c.unread || 0}])));
+                const convosData: Conversation[] = await response.json();
+                const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0}]));
+                setConversations(initialConversations);
+
+                // Now fetch latest message for each conversation to display in list
+                convosData.forEach(c => {
+                  fetch(`/api/stream-chat?conversationId=${c.id}`)
+                    .then(res => res.json())
+                    .then(history => {
+                      if (history.messages && history.messages.length > 0) {
+                        const lastMsg = history.messages[history.messages.length - 1];
+                        setLatestMessages(prev => new Map(prev).set(c.id, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
+                      }
+                    });
+                });
             } else {
               console.error("Failed to fetch conversations:", await response.text());
             }
@@ -98,63 +121,77 @@ export default function WorkbenchPage() {
         }
     };
     fetchAllConversations();
-    
+  }, [isSessionLoading, session?.userId]);
+
+  // Effect for managing Pusher subscriptions
+  useEffect(() => {
+    if (!session?.userId) return;
+
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
         cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
         authEndpoint: '/api/pusher-auth',
     });
 
-    // Subscribe to the agent-specific channel for new conversations
+    // Subscribe to agent-specific channel for new conversations
     const agentChannelName = `private-agent-${session.userId}`;
     const agentChannel = pusher.subscribe(agentChannelName);
+    
     agentChannel.bind('new-conversation', (data: string) => {
       const newConv: Conversation = JSON.parse(data);
-      setConversations(prev => {
-        const newMap = new Map(prev);
-        if (!newMap.has(newConv.id)) {
-           newMap.set(newConv.id, { ...newConv, isActive: true, unread: 1 });
-        }
-        return newMap;
-      });
-    });
-
-    // Subscribe to channels for all conversations to get new messages
-    // This effect runs once and sets up subscriptions for conversations that might be added later.
-    const conversationChannels: Record<string, any> = {};
-
-    conversations.forEach(convo => {
-      const channelName = `private-conversation-${convo.id}`;
-      if (!conversationChannels[channelName]) {
-        const channel = pusher.subscribe(channelName);
-        channel.bind('new-message', (msg: Message) => {
-            setConversations(prev => {
-                const newConvos = new Map(prev);
-                const existingConvo = newConvos.get(msg.conversationId);
-                if (existingConvo && !existingConvo.messages.some(m => m.id === msg.id)) {
-                   const unread = (msg.conversationId !== selectedConversationId && msg.sender === 'customer') ? (existingConvo.unread || 0) + 1 : (existingConvo.unread || 0);
-                   newConvos.set(msg.conversationId, {
-                       ...existingConvo,
-                       messages: [...existingConvo.messages, msg],
-                       unread,
-                   });
-                }
-                return newConvos;
-            });
-        });
-        conversationChannels[channelName] = channel;
+      setConversations(prev => new Map(prev).set(newConv.id, { ...newConv, isActive: true, unread: 1, messages: newConv.messages || [] }));
+      if(newConv.messages.length > 0) {
+        const lastMsg = newConv.messages[newConv.messages.length - 1];
+        setLatestMessages(prev => new Map(prev).set(newConv.id, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
       }
     });
+
+    // Subscribe to all conversations for new messages
+    const conversationChannels = new Map<string, any>();
+    const conversationIds = Array.from(conversations.keys());
+
+    const subscribeToConversations = (ids: string[]) => {
+      ids.forEach(id => {
+        if (!conversationChannels.has(id)) {
+          const channelName = `private-conversation-${id}`;
+          const channel = pusher.subscribe(channelName);
+          channel.bind('new-message', (msg: Message) => {
+            const isSelected = selectedConversationId === msg.conversationId;
+            setConversations(prev => {
+              const newConvos = new Map(prev);
+              const convo = newConvos.get(msg.conversationId);
+              if (convo) {
+                const newMessages = [...convo.messages, msg];
+                const unread = isSelected || msg.sender === 'agent' ? convo.unread : (convo.unread || 0) + 1;
+                newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread });
+              }
+              return newConvos;
+            });
+             setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp }));
+          });
+          conversationChannels.set(id, channel);
+        }
+      });
+    };
+    
+    subscribeToConversations(conversationIds);
+    
+    // Also re-subscribe when conversations map changes
+    const newConversationIds = Array.from(conversations.keys());
+    const addedIds = newConversationIds.filter(id => !conversationChannels.has(id));
+    if (addedIds.length > 0) {
+      subscribeToConversations(addedIds);
+    }
+
 
     return () => {
         pusher.disconnect();
     }
-
-  }, [isSessionLoading, session?.userId, selectedConversationId]);
+  }, [session?.userId, conversations, selectedConversationId]);
 
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversations, selectedConversationId]);
+  }, [selectedConversation?.messages]);
 
 
   const handleSendMessage = async () => {
@@ -168,18 +205,15 @@ export default function WorkbenchPage() {
       conversationId: selectedConversationId,
     };
 
-    // Optimistic update
     setConversations(prev => {
       const newConvos = new Map(prev);
       const convo = newConvos.get(selectedConversationId);
       if (convo) {
-        newConvos.set(selectedConversationId, {
-          ...convo,
-          messages: [...convo.messages, optimisticMessage]
-        });
+        newConvos.set(selectedConversationId, { ...convo, messages: [...convo.messages, optimisticMessage] });
       }
       return newConvos;
     });
+     setLatestMessages(prev => new Map(prev).set(selectedConversationId, { text: optimisticMessage.text, timestamp: optimisticMessage.timestamp }));
     setInputValue('');
 
     try {
@@ -194,15 +228,11 @@ export default function WorkbenchPage() {
       });
     } catch (error) {
       console.error("Failed to send message:", error);
-      // Revert optimistic update
-       setConversations(prev => {
+      setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(selectedConversationId);
         if (convo) {
-          newConvos.set(selectedConversationId, {
-            ...convo,
-            messages: convo.messages.filter(m => m.id !== optimisticMessage.id)
-          });
+          newConvos.set(selectedConversationId, { ...convo, messages: convo.messages.filter(m => m.id !== optimisticMessage.id) });
         }
         return newConvos;
       });
@@ -221,13 +251,12 @@ export default function WorkbenchPage() {
     setInputValue(`[文件: ${file.name}]`);
   };
 
-  const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
-    const lastMsgA = a.messages[a.messages.length - 1]?.timestamp;
-    const lastMsgB = b.messages[b.messages.length - 1]?.timestamp;
+    const lastMsgA = latestMessages.get(a.id);
+    const lastMsgB = latestMessages.get(b.id);
     if (!lastMsgA) return 1;
     if (!lastMsgB) return -1;
-    return new Date(lastMsgB).getTime() - new Date(lastMsgA).getTime();
+    return new Date(lastMsgB.timestamp).getTime() - new Date(lastMsgA.timestamp).getTime();
   });
 
 
@@ -250,38 +279,41 @@ export default function WorkbenchPage() {
               <p className="text-xs">从客户窗口发起新对话来开始测试。</p>
             </div>
           )}
-          {conversationArray.map((convo) => (
-            <div
-              key={convo.id}
-              className={cn(
-                "flex items-center gap-3 p-3 cursor-pointer border-l-4",
-                selectedConversationId === convo.id
-                  ? "bg-muted border-primary"
-                  : "border-transparent hover:bg-muted/50"
-              )}
-              onClick={() => handleSelectConversation(convo.id)}
-            >
-               <Avatar className="h-10 w-10 relative">
-                 <AvatarImage src={`https://picsum.photos/seed/${convo.id}/40/40`} alt={convo.name} />
-                <AvatarFallback>{convo.name.charAt(0)}</AvatarFallback>
-                {convo.isActive && <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-card" />}
-              </Avatar>
-              <div className="flex-1 overflow-hidden">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-semibold truncate">{convo.name}</h3>
-                  {convo.messages.length > 0 && <span className="text-xs text-muted-foreground">{new Date(convo.messages[convo.messages.length-1].timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
-                </div>
-                <div className="flex justify-between items-start">
-                  <p className="text-sm text-muted-foreground truncate">{convo.messages[convo.messages.length - 1]?.text || '...新会话...'}</p>
-                  {convo.unread > 0 && (
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
-                      {convo.unread}
-                    </span>
-                  )}
+          {conversationArray.map((convo) => {
+            const latestMessage = latestMessages.get(convo.id);
+            return (
+              <div
+                key={convo.id}
+                className={cn(
+                  "flex items-center gap-3 p-3 cursor-pointer border-l-4",
+                  selectedConversationId === convo.id
+                    ? "bg-muted border-primary"
+                    : "border-transparent hover:bg-muted/50"
+                )}
+                onClick={() => handleSelectConversation(convo.id)}
+              >
+                 <Avatar className="h-10 w-10 relative">
+                   <AvatarImage src={`https://picsum.photos/seed/${convo.id}/40/40`} alt={convo.name} />
+                  <AvatarFallback>{convo.name.charAt(0)}</AvatarFallback>
+                  {convo.isActive && <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-card" />}
+                </Avatar>
+                <div className="flex-1 overflow-hidden">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold truncate">{convo.name}</h3>
+                    {latestMessage && <span className="text-xs text-muted-foreground">{new Date(latestMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  </div>
+                  <div className="flex justify-between items-start">
+                    <p className="text-sm text-muted-foreground truncate">{latestMessage?.text || '...新会话...'}</p>
+                    {convo.unread > 0 && (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
+                        {convo.unread}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
        <div className="flex flex-col h-full bg-background">
@@ -346,7 +378,7 @@ export default function WorkbenchPage() {
                         <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Smile className="h-5 w-5 text-muted-foreground" /></Button>
                             <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
-                            <Button variant="ghost" size="icon" disabled={!selectedCircleDot.isActive} onClick={handleImageUpload}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
+                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive} onClick={handleImageUpload}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
                         </div>
                         <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive}>
