@@ -1,3 +1,4 @@
+
 'use server';
 
 // A Map to store active stream writers, keyed by a unique stream ID.
@@ -17,28 +18,26 @@ function broadcast(message: object, targetRole?: 'agent' | 'customer', targetCon
 
   for (const [id, stream] of activeStreams.entries()) {
     let shouldSend = false;
-    if (targetRole) {
-      // Send to a specific role
-      if (stream.role === targetRole) {
-         if (targetConversationId) {
-           // Send to a specific conversation within that role
-           if(stream.conversationId === targetConversationId) {
-             shouldSend = true;
-           }
-         } else {
-            shouldSend = true;
-         }
-      }
-    } else {
-        // Broadcast to everyone if no role is specified
-        shouldSend = true;
-    }
     
-    // Agent should receive all messages for all conversations to update their list
+    // Agent should receive all non-ping messages to update their conversation list.
     if (stream.role === 'agent' && (message as any).type !== 'ping') {
         shouldSend = true;
     }
-
+    // If a specific target role is defined, only send to that role.
+    else if (targetRole && stream.role === targetRole) {
+      // If a specific conversation ID is also defined, only send to streams matching both.
+       if (targetConversationId) {
+         if(stream.conversationId === targetConversationId) {
+           shouldSend = true;
+         }
+       } else {
+          // If no conversation ID is specified, send to all streams with the target role.
+          shouldSend = true;
+       }
+    } else if (!targetRole) {
+        // If no target role is specified, broadcast to everyone.
+        shouldSend = true;
+    }
 
     if (shouldSend) {
       try {
@@ -69,7 +68,7 @@ export async function GET(req: Request) {
 
   // Store the writer, role, and conversationId
   activeStreams.set(streamId, { writer, role, conversationId });
-  console.log(`Stream ${streamId} (${role}) connected. Total streams: ${activeStreams.size}`);
+  console.log(`Stream ${streamId} (${role}${conversationId ? ' - ' + conversationId : ''}) connected. Total streams: ${activeStreams.size}`);
 
   // When an agent connects, send them the list of current conversations
   if (role === 'agent') {
@@ -138,9 +137,12 @@ export async function POST(req: Request) {
     };
     
     // Store message
-    conversations.get(currentConversationId)?.messages.push(newMessage);
+    const conversation = conversations.get(currentConversationId);
+    if (conversation) {
+        conversation.messages.push(newMessage);
+    }
 
-    // Broadcast message
+    // Broadcast message to the other party
     if (role === 'customer') {
       // Customer message goes to all agents
       broadcast({ type: 'newMessage', message: newMessage }, 'agent');
@@ -149,10 +151,6 @@ export async function POST(req: Request) {
       broadcast({ type: 'newMessage', message: newMessage }, 'customer', currentConversationId);
     }
     
-    // Also send the message back to the sender for confirmation and state sync
-    broadcast({ type: 'newMessage', message: newMessage }, role, currentConversationId);
-
-
     return new Response(JSON.stringify({ newConversationId: currentConversationId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   } catch (error) {
