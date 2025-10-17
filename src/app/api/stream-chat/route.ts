@@ -1,5 +1,6 @@
-
-import { kv } from '@vercel/kv';
+import { db } from '@/lib/db';
+import { conversations, messages as messagesTable } from '@/lib/schema';
+import { eq } from 'drizzle-orm';
 import Pusher from 'pusher';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -12,12 +13,8 @@ const pusher = new Pusher({
   useTLS: true
 });
 
-const CONVERSATION_PREFIX = 'conversation:';
-
-// GET a conversation's history - Returns empty array for now
+// GET a conversation's history
 export async function GET(req: NextRequest) {
-  // NOTE: This is a temporary implementation.
-  // We will return an empty array as we are not using Vercel KV yet.
   const { searchParams } = new URL(req.url);
   const conversationId = searchParams.get('conversationId');
 
@@ -25,7 +22,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Conversation ID is required' }, { status: 400 });
   }
 
-  return NextResponse.json({ id: conversationId, messages: [] });
+  try {
+    const conversationMessages = await db.query.messagesTable.findMany({
+        where: eq(messagesTable.conversationId, conversationId),
+        orderBy: (messages, { asc }) => [asc(messages.timestamp)],
+    });
+    
+    const conversation = await db.query.conversations.findFirst({
+        where: eq(conversations.id, conversationId),
+    });
+
+    return NextResponse.json({ 
+        id: conversation?.id, 
+        name: conversation?.customerName,
+        messages: conversationMessages 
+    });
+  } catch (error) {
+    console.error("Failed to fetch conversation history:", error);
+    return NextResponse.json({ error: 'Failed to fetch conversation history' }, { status: 500 });
+  }
 }
 
 // POST a new message
@@ -40,41 +55,39 @@ export async function POST(req: NextRequest) {
     let currentConversationId = conversationId;
     let isNewConversation = false;
    
-    // If it's a new customer message, create a conversation ID
     if (role === 'customer' && !currentConversationId) {
       isNewConversation = true;
-      currentConversationId = crypto.randomUUID();
+      const newConversation = await db.insert(conversations).values({ 
+          customerName: senderName || `访客`,
+      }).returning({ id: conversations.id });
+      currentConversationId = newConversation[0].id;
     }
 
     if (!currentConversationId) {
         return NextResponse.json({ error: 'Conversation ID is missing.' }, { status: 400 });
     }
 
-    const newMessage = {
-      id: crypto.randomUUID(),
-      text: message,
-      sender: role,
-      conversationId: currentConversationId,
-      timestamp: new Date().toISOString(),
-    };
+    const insertedMessages = await db.insert(messagesTable).values({
+        conversationId: currentConversationId,
+        text: message,
+        sender: role,
+    }).returning();
+
+    const newMessage = insertedMessages[0];
     
-    // Define the Pusher channel
     const channelName = `private-conversation-${currentConversationId}`;
 
     if (isNewConversation) {
-        // In this temporary version, the conversation data is transient
         const conversationData = {
           id: currentConversationId,
           name: senderName || `访客 ${currentConversationId.substring(0, 6)}`,
-          messages: [newMessage], // Include the first message
-          createdAt: new Date().toISOString(),
+          messages: [newMessage],
+          createdAt: newMessage.timestamp.toISOString(),
           isActive: true,
         };
-        // Trigger an event for agents to discover the new conversation
         await pusher.trigger('agent-dashboard', 'new-conversation', JSON.stringify(conversationData));
     }
 
-    // Trigger Pusher event for the new message
     await pusher.trigger(channelName, 'new-message', newMessage);
 
     return NextResponse.json({ success: true, newConversationId: currentConversationId }, { status: 200 });
