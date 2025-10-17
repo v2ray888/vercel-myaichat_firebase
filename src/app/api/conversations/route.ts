@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { conversations, messages } from '@/lib/schema';
+import { conversations, messages as messagesTable } from '@/lib/schema';
 import { eq, desc } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       orderBy: [desc(conversations.updatedAt)],
       with: {
         messages: {
-            orderBy: [desc(messages.timestamp)],
+            orderBy: [desc(messagesTable.timestamp)],
             limit: 1,
         }
       }
