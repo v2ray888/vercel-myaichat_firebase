@@ -60,7 +60,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (!currentConversationId) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+      // This case should ideally not be hit if new conversation logic is sound.
+      return NextResponse.json({ error: 'Conversation not found and could not be created' }, { status: 404 });
     }
 
     const newMessage = {
@@ -72,15 +73,19 @@ export async function POST(req: NextRequest) {
     };
     
     // Append message to conversation in KV
+    // Use conversationData if it was just created, otherwise fetch from KV.
     const conversation: any = conversationData || await kv.get(`${CONVERSATION_PREFIX}${currentConversationId}`);
-    if (conversation) {
-      conversation.messages.push(newMessage);
-      // Also update active status on new message
-      conversation.isActive = true; 
-      await kv.set(`${CONVERSATION_PREFIX}${currentConversationId}`, conversation);
-    } else {
-        return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+    
+    // CRITICAL FIX: Check if conversation exists before trying to modify it.
+    if (!conversation) {
+        return NextResponse.json({ error: `Conversation with ID ${currentConversationId} not found.` }, { status: 404 });
     }
+
+    conversation.messages.push(newMessage);
+    // Also update active status on new message
+    conversation.isActive = true; 
+    await kv.set(`${CONVERSATION_PREFIX}${currentConversationId}`, conversation);
+
 
     // Define the Pusher channel
     const channelName = `private-conversation-${currentConversationId}`;
@@ -95,8 +100,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, newConversationId: currentConversationId }, { status: 200 });
 
-  } catch (error) {
-    console.error('Error processing POST request:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Error in POST /api/stream-chat:', error);
+    // Provide a more detailed error response in development
+    return NextResponse.json({ 
+        error: 'Internal Server Error',
+        details: error.message 
+    }, { status: 500 });
   }
 }
+
