@@ -27,9 +27,8 @@ export default function StreamTestPage() {
         headers: { 'Content-Type': 'text/plain' },
         body: transformStream.readable,
         signal: abortControllerRef.current.signal,
-        // @ts-ignore
         duplex: 'half',
-      });
+      } as RequestInit);
 
       if (!response.body) {
         throw new Error('Response has no body');
@@ -126,7 +125,7 @@ export default function StreamTestPage() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="输入消息..."
-            disabled={!isStreaming}
+            disabled={!isstreaming}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
           />
           <Button onClick={handleSendMessage} disabled={!isStreaming}>
