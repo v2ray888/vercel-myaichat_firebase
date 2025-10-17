@@ -1,77 +1,162 @@
 'use server';
 
-// A map to store active stream writers, keyed by a unique stream ID.
-const activeStreams = new Map<string, TransformStreamDefaultWriter>();
+// A Map to store active stream writers, keyed by a unique stream ID.
+// The value will be an object containing the writer, role, and conversationId
+const activeStreams = new Map<string, {
+  writer: TransformStreamDefaultWriter,
+  role: 'agent' | 'customer',
+  conversationId?: string | null
+}>();
 
-// Helper to send a message to all active streams.
-function broadcast(message: string) {
-  const formattedMessage = `data: ${message}\n\n`;
-  for (const writer of activeStreams.values()) {
-    try {
-      writer.write(new TextEncoder().encode(formattedMessage));
-    } catch (e) {
-      console.error('Error writing to a stream:', e);
+// A Map to store conversations. In a real app, this would be a database.
+const conversations = new Map<string, { id: string; name: string; messages: any[] }>();
+
+function broadcast(message: object, targetRole?: 'agent' | 'customer', targetConversationId?: string) {
+  const messageStr = `data: ${JSON.stringify(message)}\n\n`;
+  const encodedMessage = new TextEncoder().encode(messageStr);
+
+  for (const [id, stream] of activeStreams.entries()) {
+    let shouldSend = false;
+    if (targetRole) {
+      // Send to a specific role
+      if (stream.role === targetRole) {
+         if (targetConversationId) {
+           // Send to a specific conversation within that role
+           if(stream.conversationId === targetConversationId) {
+             shouldSend = true;
+           }
+         } else {
+            shouldSend = true;
+         }
+      }
+    } else {
+        // Broadcast to everyone if no role is specified
+        shouldSend = true;
+    }
+    
+    // Agent should receive all messages for all conversations to update their list
+    if (stream.role === 'agent' && (message as any).type !== 'ping') {
+        shouldSend = true;
+    }
+
+
+    if (shouldSend) {
+      try {
+        stream.writer.write(encodedMessage);
+      } catch (e) {
+        console.error('Error writing to a stream for client:', id, e);
+        // Clean up broken streams
+        activeStreams.delete(id);
+      }
     }
   }
 }
 
-/**
- * Handles GET requests to establish a new streaming connection.
- */
+// Periodically send a ping to keep connections alive
+setInterval(() => {
+  broadcast({ type: 'ping', timestamp: new Date().toISOString() });
+}, 10000);
+
+
 export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const role = searchParams.get('role') as 'agent' | 'customer' || 'customer';
+  let conversationId = searchParams.get('conversationId');
+
   const transformStream = new TransformStream();
   const writer = transformStream.writable.getWriter();
   const streamId = crypto.randomUUID();
 
-  // Store the writer in the map of active streams.
-  activeStreams.set(streamId, writer);
-  console.log(`Stream ${streamId} connected. Total streams: ${activeStreams.size}`);
+  // Store the writer, role, and conversationId
+  activeStreams.set(streamId, { writer, role, conversationId });
+  console.log(`Stream ${streamId} (${role}) connected. Total streams: ${activeStreams.size}`);
 
-  // Send a welcome message to the new client.
-  writer.write(new TextEncoder().encode('data: Connection established. Welcome!\n\n'));
+  // When an agent connects, send them the list of current conversations
+  if (role === 'agent') {
+     writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'conversationList', conversations: Array.from(conversations.values()) })}\n\n`));
+  }
 
-  // Handle client disconnection.
   req.signal.onabort = () => {
     activeStreams.delete(streamId);
-    console.log(`Stream ${streamId} disconnected. Total streams: ${activeStreams.size}`);
+    console.log(`Stream ${streamId} (${role}) disconnected. Total streams: ${activeStreams.size}`);
     try {
-        writer.close();
+      writer.close();
     } catch (e) {
-        // Ignore errors from closing an already closed stream.
+      // Ignore errors if the writer is already closed
+    }
+    
+    // If a customer disconnects, notify agents
+    if (role === 'customer' && conversationId) {
+        broadcast({ type: 'customerLeft', conversationId }, 'agent');
     }
   };
 
-  // Return a streaming response.
   return new Response(transformStream.readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'X-Stream-Id': streamId, // Send the unique ID back to the client.
+      'X-Stream-Id': streamId,
     },
   });
 }
 
-/**
- * Handles POST requests to send a message to all active streams.
- */
+
 export async function POST(req: Request) {
-    try {
-        const { message, streamId } = await req.json();
+  try {
+    const { message, conversationId, role, senderName } = await req.json();
 
-        if (!message || !streamId) {
-            return new Response('Missing message or streamId', { status: 400 });
-        }
-
-        console.log(`Received message from ${streamId}: ${message}`);
-        
-        // Broadcast the message to all clients.
-        broadcast(`来自 ${streamId.substring(0, 6)}: ${message}`);
-        
-        return new Response('Message sent', { status: 200 });
-
-    } catch (error) {
-        console.error('Error processing POST request:', error);
-        return new Response('Internal Server Error', { status: 500 });
+    if (!message || !role) {
+      return new Response('Missing message or role', { status: 400 });
     }
+
+    let currentConversationId = conversationId;
+
+    // If it's a new customer message without a conversation ID, create one.
+    if (role === 'customer' && !currentConversationId) {
+      currentConversationId = crypto.randomUUID();
+      const newConversation = {
+        id: currentConversationId,
+        name: senderName || `访客 ${currentConversationId.substring(0, 6)}`,
+        messages: [],
+      };
+      conversations.set(currentConversationId, newConversation);
+      // Notify agents of the new conversation
+      broadcast({ type: 'newConversation', conversation: newConversation }, 'agent');
+    }
+    
+    if (!currentConversationId || !conversations.has(currentConversationId)) {
+        return new Response('Conversation not found', { status: 404 });
+    }
+
+    const newMessage = {
+      id: crypto.randomUUID(),
+      text: message,
+      sender: role,
+      conversationId: currentConversationId,
+      timestamp: new Date().toISOString(),
+    };
+    
+    // Store message
+    conversations.get(currentConversationId)?.messages.push(newMessage);
+
+    // Broadcast message
+    if (role === 'customer') {
+      // Customer message goes to all agents
+      broadcast({ type: 'newMessage', message: newMessage }, 'agent');
+    } else if (role === 'agent') {
+      // Agent message goes to the specific customer
+      broadcast({ type: 'newMessage', message: newMessage }, 'customer', currentConversationId);
+    }
+    
+    // Also send the message back to the sender for confirmation and state sync
+    broadcast({ type: 'newMessage', message: newMessage }, role, currentConversationId);
+
+
+    return new Response(JSON.stringify({ newConversationId: currentConversationId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  } catch (error) {
+    console.error('Error processing POST request:', error);
+    return new Response('Internal Server Error', { status: 500 });
+  }
 }

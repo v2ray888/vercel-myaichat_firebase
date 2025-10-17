@@ -7,7 +7,6 @@ import {
   Home,
   MessageSquare,
   Settings,
-  Bot,
 } from "lucide-react"
 
 import {
@@ -47,7 +46,6 @@ export default function DashboardLayout({
     { href: "/dashboard", icon: <Home />, label: "仪表盘" },
     { href: "/dashboard/workbench", icon: <MessageSquare />, label: "工作台" },
     { href: "/dashboard/code", icon: <Code2 />, label: "代码嵌入" },
-    { href: "/dashboard/stream-test", icon: <Bot />, label: "流式聊天测试" },
     { href: "/dashboard/settings", icon: <Settings />, label: "设置" },
   ]
 

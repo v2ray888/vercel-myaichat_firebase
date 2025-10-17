@@ -1,30 +1,152 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User } from "lucide-react"
+import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot } from "lucide-react"
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 
-const conversations = [
-  { id: 1, name: "王美丽", message: "你好，我想咨询一下最新的优惠活动。", time: "2m ago", unread: 2, avatar: PlaceHolderImages.find(p => p.id === 'customer-1')?.imageUrl },
-  { id: 2, name: "张伟", message: "这个产品怎么使用？我遇到了一些问题。", time: "1h ago", unread: 0, avatar: PlaceHolderImages.find(p => p.id === 'customer-2')?.imageUrl },
-  { id: 3, name: "李小雅", message: "请问你们支持开发票吗？", time: "3h ago", unread: 0, avatar: PlaceHolderImages.find(p => p.id === 'customer-3')?.imageUrl },
-]
+type Message = {
+  id: string;
+  text: string;
+  sender: 'agent' | 'customer';
+  timestamp: string;
+  conversationId: string;
+};
 
-const messages = [
-    { sender: "customer", text: "你好，我想咨询一下最新的优惠活动。" },
-    { sender: "agent", text: "您好！很高兴为您服务。我们最近有一个针对新用户的 9 折优惠，请问您感兴趣吗？" },
-    { sender: "customer", text: "听起来不错！请问有什么限制吗？" },
-]
+type Conversation = {
+  id: string;
+  name: string;
+  messages: Message[];
+  unread?: number;
+  isActive?: boolean;
+};
 
 export default function WorkbenchPage() {
-  const [selectedConversation, setSelectedConversation] = useState(conversations[0])
+  const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
+
+  const startStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    const fetchStream = async () => {
+      try {
+        const response = await fetch('/api/stream-chat?role=agent', {
+          method: 'GET',
+          signal: abortControllerRef.current?.signal,
+        });
+
+        if (!response.body) return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n\n').filter(Boolean);
+
+          lines.forEach(line => {
+            if (line.startsWith('data: ')) {
+              const data = JSON.parse(line.substring(6));
+              
+              setConversations(prev => {
+                const newConvos = new Map(prev);
+                
+                if (data.type === 'conversationList') {
+                    data.conversations.forEach((conv: Conversation) => {
+                        if (!newConvos.has(conv.id)) {
+                            newConvos.set(conv.id, { ...conv, messages: conv.messages || [], isActive: true });
+                        }
+                    });
+                } else if (data.type === 'newConversation') {
+                    const newConv = { ...data.conversation, messages: [], isActive: true };
+                    newConvos.set(data.conversation.id, newConv);
+                } else if (data.type === 'newMessage') {
+                    const msg = data.message as Message;
+                    const convo = newConvos.get(msg.conversationId);
+                    if (convo) {
+                        const newMessages = [...convo.messages, msg];
+                        const unread = (msg.conversationId !== selectedConversationId && msg.sender === 'customer') ? (convo.unread || 0) + 1 : convo.unread;
+                        newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread });
+                    }
+                } else if (data.type === 'customerLeft') {
+                    const convo = newConvos.get(data.conversationId);
+                    if (convo) {
+                        newConvos.set(data.conversationId, { ...convo, isActive: false });
+                    }
+                }
+                return newConvos;
+              });
+            }
+          });
+        }
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          console.error("Streaming error:", error);
+        }
+      }
+    };
+    fetchStream();
+  };
+  
+  useEffect(() => {
+    startStreaming();
+    return () => {
+      abortControllerRef.current?.abort();
+    }
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversations, selectedConversationId]);
+
+  const handleSelectConversation = (id: string) => {
+    setSelectedConversationId(id);
+    setConversations(prev => {
+        const newConvos = new Map(prev);
+        const convo = newConvos.get(id);
+        if (convo) {
+            newConvos.set(id, { ...convo, unread: 0 });
+        }
+        return newConvos;
+    });
+  }
+
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !selectedConversationId) return;
+
+    try {
+      await fetch('/api/stream-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: inputValue,
+          conversationId: selectedConversationId,
+          role: 'agent'
+        }),
+      });
+      setInputValue('');
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      // Optionally show an error to the agent
+    }
+  };
+
+  const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
+  const conversationArray = Array.from(conversations.values());
 
   return (
     <div className="h-[calc(100vh-60px-3rem)] grid md:grid-cols-[300px_1fr] lg:grid-cols-[350px_1fr]">
@@ -37,29 +159,31 @@ export default function WorkbenchPage() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {conversations.map((convo) => (
+          {conversationArray.length === 0 && <p className="p-4 text-sm text-muted-foreground">暂无活跃对话</p>}
+          {conversationArray.map((convo) => (
             <div
               key={convo.id}
               className={cn(
                 "flex items-center gap-3 p-3 cursor-pointer border-l-4",
-                selectedConversation.id === convo.id
+                selectedConversationId === convo.id
                   ? "bg-muted border-primary"
                   : "border-transparent hover:bg-muted/50"
               )}
-              onClick={() => setSelectedConversation(convo)}
+              onClick={() => handleSelectConversation(convo.id)}
             >
-              <Avatar className="h-10 w-10">
-                <AvatarImage src={convo.avatar} alt={convo.name} />
+               <Avatar className="h-10 w-10 relative">
+                 <AvatarImage src={`https://picsum.photos/seed/${convo.id}/40/40`} alt={convo.name} />
                 <AvatarFallback>{convo.name.charAt(0)}</AvatarFallback>
+                {convo.isActive && <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-card" />}
               </Avatar>
               <div className="flex-1 overflow-hidden">
                 <div className="flex justify-between items-center">
                   <h3 className="font-semibold truncate">{convo.name}</h3>
-                  <span className="text-xs text-muted-foreground">{convo.time}</span>
+                  {convo.messages.length > 0 && <span className="text-xs text-muted-foreground">{new Date(convo.messages[convo.messages.length-1].timestamp).toLocaleTimeString()}</span>}
                 </div>
                 <div className="flex justify-between items-start">
-                  <p className="text-sm text-muted-foreground truncate">{convo.message}</p>
-                  {convo.unread > 0 && (
+                  <p className="text-sm text-muted-foreground truncate">{convo.messages[convo.messages.length - 1]?.text || '...新会话...'}</p>
+                  {convo.unread && convo.unread > 0 && (
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
                       {convo.unread}
                     </span>
@@ -70,60 +194,85 @@ export default function WorkbenchPage() {
           ))}
         </div>
       </div>
-      <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div>
-            <h3 className="text-lg font-semibold font-headline">{selectedConversation.name}</h3>
-            <span className="text-sm text-muted-foreground">在线</span>
-          </div>
-          <Button variant="outline" size="icon">
-            <Archive className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {messages.map((msg, index) => (
-            <div key={index} className={cn("flex items-end gap-2", msg.sender === 'agent' ? 'justify-end' : 'justify-start')}>
-              {msg.sender === 'customer' && (
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={selectedConversation.avatar} alt={selectedConversation.name} />
-                  <AvatarFallback>{selectedConversation.name.charAt(0)}</AvatarFallback>
-                </Avatar>
-              )}
-              <div className={cn(
-                  "max-w-[70%] rounded-lg px-4 py-2",
-                  msg.sender === 'agent' ? 'bg-primary text-primary-foreground rounded-br-none' : 'bg-muted text-card-foreground rounded-bl-none'
-              )}>
-                <p>{msg.text}</p>
+       <div className="flex flex-col h-full bg-background">
+        {selectedConversation ? (
+          <>
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h3 className="text-lg font-semibold font-headline flex items-center gap-2">
+                  {selectedConversation.name}
+                  {selectedConversation.isActive ? 
+                    <span className="text-xs text-green-600 flex items-center gap-1"><CircleDot className="h-3 w-3 fill-green-500 text-green-600" /> 在线</span> : 
+                    <span className="text-xs text-muted-foreground">已离线</span>
+                  }
+                </h3>
               </div>
-              {msg.sender === 'agent' && (
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl} alt="Agent" />
-                  <AvatarFallback><User size={18} /></AvatarFallback>
-                </Avatar>
-              )}
+              <Button variant="outline" size="icon">
+                <Archive className="h-4 w-4" />
+              </Button>
             </div>
-          ))}
-        </div>
-        <div className="p-4 border-t bg-card">
-          <Card>
-            <CardContent className="p-2">
-                <Textarea
-                    placeholder="输入您的回复..."
-                    className="w-full border-0 focus-visible:ring-0 resize-none bg-transparent"
-                />
-                <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon"><Smile className="h-5 w-5 text-muted-foreground" /></Button>
-                        <Button variant="ghost" size="icon"><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
-                        <Button variant="ghost" size="icon"><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
-                    </div>
-                    <Button>
-                        发送回复 <Send className="ml-2 h-4 w-4" />
-                    </Button>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {selectedConversation.messages.map((msg) => (
+                <div key={msg.id} className={cn("flex items-end gap-2", msg.sender === 'agent' ? 'justify-end' : 'justify-start')}>
+                  {msg.sender === 'customer' && (
+                    <Avatar className="h-8 w-8">
+                       <AvatarImage src={`https://picsum.photos/seed/${selectedConversation.id}/40/40`} alt={selectedConversation.name} />
+                      <AvatarFallback>{selectedConversation.name.charAt(0)}</AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div className={cn(
+                      "max-w-[70%] rounded-lg px-4 py-2",
+                      msg.sender === 'agent' ? 'bg-primary text-primary-foreground rounded-br-none' : 'bg-muted text-card-foreground rounded-bl-none'
+                  )}>
+                    <p>{msg.text}</p>
+                  </div>
+                  {msg.sender === 'agent' && (
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={userAvatar} alt="Agent" />
+                      <AvatarFallback><User size={18} /></AvatarFallback>
+                    </Avatar>
+                  )}
                 </div>
-            </CardContent>
-          </Card>
-        </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="p-4 border-t bg-card">
+              <Card>
+                <CardContent className="p-2">
+                    <Textarea
+                        placeholder={selectedConversation.isActive ? "输入您的回复..." : "客户已离线，无法发送消息。"}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendMessage();
+                            }
+                        }}
+                        className="w-full border-0 focus-visible:ring-0 resize-none bg-transparent"
+                        disabled={!selectedConversation.isActive}
+                    />
+                    <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Smile className="h-5 w-5 text-muted-foreground" /></Button>
+                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
+                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
+                        </div>
+                        <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive}>
+                            发送回复 <Send className="ml-2 h-4 w-4" />
+                        </Button>
+                    </div>
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+            <MessageSquare className="h-16 w-16 mb-4" />
+            <p className="text-lg font-medium">请从左侧选择一个对话</p>
+            <p className="text-sm">或者等待新客户发起会话。</p>
+          </div>
+        )}
       </div>
     </div>
   )
