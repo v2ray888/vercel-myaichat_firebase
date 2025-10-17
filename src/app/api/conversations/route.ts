@@ -1,7 +1,8 @@
 import { db } from '@/lib/db';
-import { desc } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { conversations as conversationsTable } from '@/lib/schema';
+import { desc } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -11,18 +12,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // This query now fetches ALL active conversations.
-    // The logic for filtering by assigneeId has been removed to prevent crashes.
-    const allConversations = await db.query.conversations.findMany({
-      orderBy: [desc(db.query.conversations.schema.updatedAt)],
-    });
+    // This query now fetches ALL active conversations, without the problematic orderBy clause.
+    const allConversations = await db.query.conversations.findMany();
 
     const result = allConversations.map(c => ({
         id: c.id,
         name: c.customerName,
         messages: [], // Always return an empty array. Frontend will fetch on demand.
         isActive: c.isActive,
-        unread: 0, 
+        unread: 0,
+        // We add updatedAt here so the frontend can sort it.
+        updatedAt: c.updatedAt,
     }));
 
     return NextResponse.json(result);

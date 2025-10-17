@@ -27,6 +27,7 @@ type Conversation = {
   messages: Message[];
   unread: number;
   isActive: boolean;
+  updatedAt: string; // Added for sorting
 };
 
 // Represents the latest message for display in the conversation list
@@ -51,6 +52,9 @@ export default function WorkbenchPage() {
   const fetchConversationHistory = async (convId: string) => {
     try {
       const response = await fetch(`/api/stream-chat?conversationId=${convId}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch history: ${response.statusText}`);
+      }
       const data: { messages: Message[] } = await response.json();
       if (data && data.messages) {
         setConversations(prev => {
@@ -74,7 +78,6 @@ export default function WorkbenchPage() {
   const handleSelectConversation = useCallback(async (id: string) => {
     setSelectedConversationId(id);
     
-    // Mark as read
     setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(id);
@@ -84,8 +87,8 @@ export default function WorkbenchPage() {
         return newConvos;
     });
 
-    // Fetch message history for the selected conversation
-    if (conversations.get(id)?.messages.length === 0) {
+    const currentConvo = conversations.get(id);
+    if (currentConvo && currentConvo.messages.length === 0) {
       await fetchConversationHistory(id);
     }
 
@@ -95,7 +98,6 @@ export default function WorkbenchPage() {
   useEffect(() => {
     if (isSessionLoading || !session?.userId) return;
 
-    // Fetch initial list of conversations (without messages)
     const fetchAllConversations = async () => {
         try {
             const response = await fetch(`/api/conversations`);
@@ -104,7 +106,6 @@ export default function WorkbenchPage() {
                 const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0}]));
                 setConversations(initialConversations);
 
-                // Now fetch latest message for each conversation to display in list
                 convosData.forEach(c => {
                   fetch(`/api/stream-chat?conversationId=${c.id}`)
                     .then(res => res.json())
@@ -149,44 +150,30 @@ export default function WorkbenchPage() {
 
     // Subscribe to all conversations for new messages
     const conversationChannels = new Map<string, any>();
-    const conversationIds = Array.from(conversations.keys());
-
-    const subscribeToConversations = (ids: string[]) => {
-      ids.forEach(id => {
-        if (!conversationChannels.has(id)) {
-          const channelName = `private-conversation-${id}`;
-          const channel = pusher.subscribe(channelName);
-          channel.bind('new-message', (msg: Message) => {
-            const isSelected = selectedConversationId === msg.conversationId;
-            setConversations(prev => {
-              const newConvos = new Map(prev);
-              const convo = newConvos.get(msg.conversationId);
-              if (convo) {
-                const newMessages = [...convo.messages, msg];
-                const unread = isSelected || msg.sender === 'agent' ? convo.unread : (convo.unread || 0) + 1;
-                newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread });
-              }
-              return newConvos;
-            });
-             setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp }));
+    
+    const subscribeToConversation = (convId: string) => {
+        if (conversationChannels.has(convId)) return;
+        const channelName = `private-conversation-${convId}`;
+        const channel = pusher.subscribe(channelName);
+        channel.bind('new-message', (msg: Message) => {
+          const isSelected = selectedConversationId === msg.conversationId;
+          
+          setConversations(prev => {
+            const newConvos = new Map(prev);
+            const convo = newConvos.get(msg.conversationId);
+            if (convo) {
+              const newMessages = [...convo.messages, msg];
+              const unread = isSelected || msg.sender === 'agent' ? convo.unread : (convo.unread || 0) + 1;
+              newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
+            }
+            return newConvos;
           });
-          conversationChannels.set(id, channel);
-        }
-      });
-    };
+          setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp }));
+        });
+        conversationChannels.set(convId, channel);
+    }
     
-    subscribeToConversations(conversationIds);
-    
-    // Also re-subscribe when conversations map changes
-    const handleNewConversation = (conv: Conversation) => {
-      if (!conversationChannels.has(conv.id)) {
-        subscribeToConversations([conv.id]);
-      }
-    };
-
-    const newConversationIds = Array.from(conversations.values());
-    newConversationIds.forEach(conv => handleNewConversation(conv));
-
+    conversations.forEach((_, id) => subscribeToConversation(id));
 
     return () => {
         pusher.disconnect();
@@ -214,7 +201,7 @@ export default function WorkbenchPage() {
       const newConvos = new Map(prev);
       const convo = newConvos.get(selectedConversationId);
       if (convo) {
-        newConvos.set(selectedConversationId, { ...convo, messages: [...convo.messages, optimisticMessage] });
+        newConvos.set(selectedConversationId, { ...convo, messages: [...convo.messages, optimisticMessage], updatedAt: new Date().toISOString() });
       }
       return newConvos;
     });
@@ -257,11 +244,7 @@ export default function WorkbenchPage() {
   };
 
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
-    const lastMsgA = latestMessages.get(a.id);
-    const lastMsgB = latestMessages.get(b.id);
-    if (!lastMsgA) return 1;
-    if (!lastMsgB) return -1;
-    return new Date(lastMsgB.timestamp).getTime() - new Date(lastMsgA.timestamp).getTime();
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
 
 
