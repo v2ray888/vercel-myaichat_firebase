@@ -16,6 +16,11 @@ export default function StreamTestPage() {
   const { toast } = useToast();
 
   const startStreaming = async () => {
+    // Abort any existing stream
+    if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+    }
+      
     abortControllerRef.current = new AbortController();
     
     setIsStreaming(true);
@@ -52,7 +57,12 @@ export default function StreamTestPage() {
         lines.forEach(line => {
             if (line.startsWith('data: ')) {
                 const data = line.substring(6);
-                setMessages((prev) => [...prev, data]);
+                
+                // Don't show the message if it's from the current user
+                const senderIdPrefix = `来自 ${receivedStreamId.substring(0, 6)}:`;
+                if (!data.startsWith(senderIdPrefix)) {
+                    setMessages((prev) => [...prev, data]);
+                }
             }
         });
       }
@@ -65,7 +75,9 @@ export default function StreamTestPage() {
     } finally {
       setIsStreaming(false);
       setStreamId(null);
-      abortControllerRef.current = null;
+      if(abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
+        abortControllerRef.current = null;
+      }
     }
   };
 
@@ -86,7 +98,9 @@ export default function StreamTestPage() {
     }
     
     try {
+        // Optimistically add user's message to the UI
         setMessages((prev) => [...prev, `您: ${inputValue}`]);
+
         const response = await fetch('/api/stream-chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -106,6 +120,7 @@ export default function StreamTestPage() {
   };
 
   useEffect(() => {
+    // Cleanup on component unmount
     return () => {
       stopStreaming();
     };
