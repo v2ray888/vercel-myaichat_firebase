@@ -60,6 +60,16 @@ function ChatWidget() {
     const brandLogo = PlaceHolderImages.find(p => p.id === 'brand-logo');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Communicate size changes to the parent window (if in an iframe)
+    useEffect(() => {
+        if (window.parent !== window) { // Check if we are inside an iframe
+            window.parent.postMessage({
+                type: 'zhiliaotong-resize',
+                isOpen: isOpen,
+            }, '*'); // Be more specific with the target origin in production
+        }
+    }, [isOpen]);
+
     const subscribeToChannel = (convId: string) => {
         const pusher = getPusherClient();
         if (!pusher) return;
@@ -91,12 +101,11 @@ function ChatWidget() {
     }
     
     useEffect(() => {
-        if (!isOpen) return;
-
         const storedConvId = sessionStorage.getItem('chat-conversation-id');
-        if (storedConvId) {
-            setConversationId(storedConvId);
-            subscribeToChannel(storedConvId);
+        // Only try to connect if the widget is open for the first time or if a conversation already exists
+        if (isOpen && !conversationId && storedConvId) {
+             setConversationId(storedConvId);
+             subscribeToChannel(storedConvId);
             
             fetch(`/api/stream-chat?conversationId=${storedConvId}`).then(res => res.json()).then(data => {
                 if (data && data.messages && data.messages.length > 0) {
@@ -106,13 +115,20 @@ function ChatWidget() {
             }).catch(err => console.error("Failed to fetch history:", err));
         }
         
-        return () => {
+        const handleUnload = () => {
              const pusher = getPusherClient();
              if (pusher && conversationId) {
                 pusher.unsubscribe(`private-conversation-${conversationId}`);
              }
         };
-    }, [isOpen]); 
+
+        window.addEventListener('beforeunload', handleUnload);
+        
+        return () => {
+            window.removeEventListener('beforeunload', handleUnload);
+            // We can leave the disconnection logic to happen on page unload
+        };
+    }, [isOpen, conversationId]); 
 
     useEffect(() => {
         if (isOpen) {
