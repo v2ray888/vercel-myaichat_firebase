@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       orderBy: [desc(conversations.updatedAt)],
       with: {
         messages: {
-            orderBy: [desc(messagesTable.timestamp)],
+            orderBy: (messages, { desc }) => [desc(messages.timestamp)],
             limit: 1,
         }
       }
