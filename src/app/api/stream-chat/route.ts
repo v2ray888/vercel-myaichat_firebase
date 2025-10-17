@@ -1,6 +1,7 @@
+
 import { db } from '@/lib/db';
 import { conversations, messages as messagesTable, users } from '@/lib/schema';
-import { eq, sql } from 'drizzle-orm';
+import { eq, asc } from 'drizzle-orm';
 import Pusher from 'pusher';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -27,9 +28,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const conversationMessages = await db.query.messagesTable.findMany({
+    const conversationMessages = await db.query.messages.findMany({
         where: eq(messagesTable.conversationId, conversationId),
-        orderBy: (messages, { asc }) => [asc(messages.timestamp)],
+        orderBy: [asc(messagesTable.timestamp)],
     });
     
     const conversation = await db.query.conversations.findFirst({
@@ -41,9 +42,9 @@ export async function GET(req: NextRequest) {
         name: conversation?.customerName,
         messages: conversationMessages 
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to fetch conversation history:", error);
-    return NextResponse.json({ error: 'Failed to fetch conversation history' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch conversation history', details: error.message }, { status: 500 });
   }
 }
 
@@ -91,19 +92,11 @@ export async function POST(req: NextRequest) {
     // Channel for the customer widget
     const customerChannelName = `private-conversation-${currentConversationId}`;
     
-    // For a new conversation, we need to find ANY agent to notify.
-    // In this simplified model, we will notify ALL agents by using a public channel
-    // for new conversations. A better approach would be a dedicated channel for agents.
-    // For now, let's assume we have a way to get all agent channels.
-    // We will just broadcast to a generic agent channel for simplicity for now.
-    // The proper fix is to notify the specific agent.
     if (isNewConversation) {
         const admin = await db.query.users.findFirst({
             where: eq(users.email, ADMIN_EMAIL),
         });
 
-        // This is a simplified notification. Ideally, you'd have a system
-        // to broadcast to all logged-in agents.
         if (admin && admin.id) {
             const agentChannel = `private-agent-${admin.id}`;
              const conversationPayload = {
@@ -112,17 +105,23 @@ export async function POST(req: NextRequest) {
               messages: [newMessage],
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,
+              updatedAt: new Date().toISOString(),
+              unread: 1,
             };
             try {
                 await pusher.trigger(agentChannel, 'new-conversation', JSON.stringify(conversationPayload));
             } catch (e) {
-                console.error("Pusher trigger failed:", e);
+                console.error("Pusher trigger failed for new-conversation:", e);
             }
         }
     }
 
     // Trigger message for both customer and agent
-    await pusher.trigger(customerChannelName, 'new-message', newMessage);
+    try {
+        await pusher.trigger(customerChannelName, 'new-message', newMessage);
+    } catch (e) {
+        console.error("Pusher trigger failed for new-message:", e);
+    }
 
     return NextResponse.json({ success: true, newConversationId: currentConversationId }, { status: 200 });
 
