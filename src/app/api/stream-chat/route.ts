@@ -32,7 +32,7 @@ export async function POST(req: Request) {
         console.error('Error reading from request stream:', error);
       } finally {
         // Close the writable stream when the request stream is finished.
-        // We don't close it here because the client might keep the stream open.
+        writer.close();
       }
     }
   })();
