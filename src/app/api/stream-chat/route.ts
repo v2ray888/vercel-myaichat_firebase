@@ -9,43 +9,32 @@ export async function POST(req: Request) {
   const writer = transformStream.writable.getWriter();
   const encoder = new TextEncoder();
 
-  // Read from the request stream and echo back.
-  (async () => {
-    if (req.body) {
-      const reader = req.body.getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          // For this demo, we'll just log the client message
-          const clientMessage = new TextDecoder().decode(value);
-          console.log('Received from client:', clientMessage);
+  // We are not reading from the request body anymore to avoid immediate close.
+  // The server will just keep the connection alive and send pings.
+  // The client will handle sending messages via a separate mechanism if needed,
+  // but for this test, we are focusing on server-to-client streaming.
 
-          // And echo it back
-          await writer.write(
-            encoder.encode(`data: Echo: ${clientMessage}\n\n`)
-          );
-        }
-      } catch (error) {
-        console.error('Error reading from request stream:', error);
-      } finally {
-        // Close the writable stream when the request stream is finished.
-        writer.close();
-      }
-    }
-  })();
-  
   // We send a ping every few seconds to keep the connection alive.
   const intervalId = setInterval(() => {
-    writer.write(encoder.encode(`data: ping\n\n`));
+    try {
+      writer.write(encoder.encode(`data: ping\n\n`));
+    } catch (e) {
+      console.error('Error writing ping:', e);
+      clearInterval(intervalId);
+    }
   }, 3000);
 
 
-  writer.closed.then(() => {
+  // When the client closes the connection, we get an error on write.
+  // We can also use req.signal to detect closure.
+  req.signal.onabort = () => {
     clearInterval(intervalId);
-  });
+    try {
+      writer.close();
+    } catch (e) {
+      console.error('Error closing writer on abort:', e);
+    }
+  };
 
   return new Response(transformStream.readable, {
     headers: {
