@@ -204,7 +204,14 @@ export default function WorkbenchPage() {
                 };
                 newConvos.set(msg.conversationId, convo);
             }
-            return newConvos;
+            // Re-sort the conversation list to bring the updated one to the top
+            const sortedConvos = new Map(Array.from(newConvos.values()).sort((a, b) => {
+                 if (a.id === msg.conversationId) return -1;
+                 if (b.id === msg.conversationId) return 1;
+                 return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+             }).map(c => [c.id, c]));
+
+            return sortedConvos;
         });
         setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp, metadata: msg.metadata }));
     });

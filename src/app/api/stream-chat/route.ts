@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
     let isNewConversation = false;
     
     // Use a placeholder IP for reliability in all environments.
-    // This can be replaced with environment-specific IP detection later.
     const ip = "127.0.0.1";
 
 
@@ -101,7 +100,7 @@ export async function POST(req: NextRequest) {
     } else {
         messagePayload.text = message;
     }
-
+    
     const insertedMessages = await db.insert(messagesTable).values(messagePayload).returning();
 
     const newMessage = insertedMessages[0];
@@ -144,7 +143,9 @@ export async function POST(req: NextRequest) {
             }
         }
         // Always notify the customer's own channel
-        await pusher.trigger(customerChannelName, 'new-message', newMessage);
+        if (role === 'agent') {
+           await pusher.trigger(customerChannelName, 'new-message', newMessage);
+        }
 
     } catch (e) {
         console.error("Pusher trigger failed for new-message:", e);
