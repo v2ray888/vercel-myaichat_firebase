@@ -184,9 +184,9 @@ export default function SettingsPage() {
                             render={({ field }) => (
                                 <div className="space-y-2">
                                 <Label htmlFor="primary-color">主颜色</Label>
-                                <div className="relative">
-                                    <Input id="primary-color" {...field} className="pl-10" />
-                                    <div className="absolute left-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border" style={{ backgroundColor: watchedValues.primaryColor }}></div>
+                                <div className="flex items-center gap-2">
+                                    <input type="color" {...field} className="h-10 w-12 p-1 bg-card border rounded-md cursor-pointer"/>
+                                    <Input id="primary-color" {...field}  />
                                 </div>
                                 {form.formState.errors.primaryColor && <p className="text-sm text-destructive">{form.formState.errors.primaryColor.message}</p>}
                                 </div>
@@ -198,9 +198,9 @@ export default function SettingsPage() {
                             render={({ field }) => (
                                 <div className="space-y-2">
                                 <Label htmlFor="background-color">背景颜色</Label>
-                                <div className="relative">
-                                    <Input id="background-color" {...field} className="pl-10" />
-                                    <div className="absolute left-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border" style={{ backgroundColor: watchedValues.backgroundColor }}></div>
+                                 <div className="flex items-center gap-2">
+                                    <input type="color" {...field} className="h-10 w-12 p-1 bg-card border rounded-md cursor-pointer"/>
+                                    <Input id="background-color" {...field} />
                                 </div>
                                 {form.formState.errors.backgroundColor && <p className="text-sm text-destructive">{form.formState.errors.backgroundColor.message}</p>}
                                 </div>
@@ -352,3 +352,5 @@ export default function SettingsPage() {
     </form>
   )
 }
+
+    
