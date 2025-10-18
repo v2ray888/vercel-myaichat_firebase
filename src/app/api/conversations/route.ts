@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     const result = allConversations.map(c => ({
         id: c.id,
         name: c.customerName,
+        ipAddress: c.ipAddress,
         messages: [], // Always return an empty array. Frontend will fetch on demand.
         isActive: c.isActive,
         unread: 0, // Initialize unread count to 0, client will manage it.

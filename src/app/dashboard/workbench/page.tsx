@@ -39,6 +39,7 @@ type Message = {
 type Conversation = {
   id: string;
   name: string;
+  ipAddress?: string | null;
   messages: Message[];
   unread: number;
   isActive: boolean;
@@ -367,7 +368,10 @@ export default function WorkbenchPage() {
                 </Avatar>
                 <div className="flex-1 overflow-hidden">
                   <div className="flex justify-between items-center">
-                    <h3 className="font-semibold truncate">{convo.name}</h3>
+                     <h3 className="font-semibold truncate">
+                        {convo.name}
+                        {convo.ipAddress && <span className="text-xs text-muted-foreground ml-2 font-normal">{convo.ipAddress}</span>}
+                    </h3>
                     {latestMessage && <span className="text-xs text-muted-foreground">{new Date(latestMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                   </div>
                   <div className="flex justify-between items-start">
@@ -389,8 +393,9 @@ export default function WorkbenchPage() {
           <>
             <div className="flex items-center justify-between p-4 border-b">
               <div>
-                <h3 className="text-lg font-semibold font-headline flex items-center gap-2">
-                  {selectedConversation.name}
+                 <h3 className="text-lg font-semibold font-headline flex items-center gap-2">
+                    {selectedConversation.name}
+                    {selectedConversation.ipAddress && <span className="text-sm text-muted-foreground font-normal">({selectedConversation.ipAddress})</span>}
                   {selectedConversation.isActive ? 
                     <span className="text-xs text-green-600 flex items-center gap-1"><CircleDot className="h-3 w-3 fill-green-500 text-green-600" /> 在线</span> : 
                     <span className="text-xs text-muted-foreground">已离线</span>
@@ -509,5 +514,3 @@ export default function WorkbenchPage() {
     </div>
   )
 }
-
-    

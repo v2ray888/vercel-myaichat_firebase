@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ 
         id: conversation?.id, 
         name: conversation?.customerName,
+        ipAddress: conversation?.ipAddress,
         messages: conversationMessages 
     });
   } catch (error: any) {
@@ -58,7 +59,10 @@ export async function POST(req: NextRequest) {
 
     let currentConversationId = conversationId;
     let isNewConversation = false;
-   
+    
+    // Get IP address from request
+    const ip = req.headers.get('x-forwarded-for') || req.ip;
+
     if (role === 'customer' && !currentConversationId) {
         isNewConversation = true;
 
@@ -66,7 +70,8 @@ export async function POST(req: NextRequest) {
             customerName: senderName || `访客`,
             isActive: true,
             updatedAt: new Date(),
-        }).returning({ id: conversations.id, updatedAt: conversations.updatedAt, customerName: conversations.customerName, isActive: conversations.isActive });
+            ipAddress: ip,
+        }).returning();
 
         const newConversation = newConversationResult[0];
         currentConversationId = newConversation.id;
@@ -114,6 +119,7 @@ export async function POST(req: NextRequest) {
              const conversationPayload = {
               id: currentConversationId,
               name: senderName || `访客`,
+              ipAddress: ip,
               messages: [newMessage],
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,
@@ -131,7 +137,17 @@ export async function POST(req: NextRequest) {
 
     // Trigger message for both customer and agent
     try {
+        // Exclude agent-sent messages from being sent back to the agent channel
+        if (role !== 'agent') {
+            const currentConversation = await db.query.conversations.findFirst({ where: eq(conversations.id, currentConversationId) });
+            const admin = await db.query.users.findFirst(); // simplified admin lookup
+            if (admin?.id) {
+                const agentChannel = `private-agent-${admin.id}`;
+                await pusher.trigger(agentChannel, 'new-message', { ...newMessage, conversationName: currentConversation?.customerName, conversationIp: currentConversation?.ipAddress });
+            }
+        }
         await pusher.trigger(customerChannelName, 'new-message', newMessage);
+
     } catch (e) {
         console.error("Pusher trigger failed for new-message:", e);
     }
