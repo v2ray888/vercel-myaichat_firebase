@@ -17,6 +17,7 @@ export const settings = pgTable('settings', {
   autoOpenWidget: boolean('auto_open_widget').default(true),
   allowCustomerImageUpload: boolean('allow_customer_image_upload').default(true),
   allowAgentImageUpload: boolean('allow_agent_image_upload').default(true),
+  enableAiFeatures: boolean('enable_ai_features').default(true),
   brandLogoUrl: text('brand_logo_url').default(''),
   primaryColor: varchar('primary_color', { length: 7 }).default('#3F51B5'),
   backgroundColor: varchar('background_color', { length: 7 }).default('#F0F2F5'),

@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
@@ -59,6 +60,10 @@ type QuickReply = {
   content: string;
 };
 
+type Settings = {
+  enableAiFeatures: boolean;
+};
+
 export default function WorkbenchPage() {
   const { toast } = useToast();
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
@@ -72,6 +77,7 @@ export default function WorkbenchPage() {
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
   
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
@@ -127,11 +133,16 @@ export default function WorkbenchPage() {
   useEffect(() => {
     if (isSessionLoading || !session?.userId) return;
 
-    const fetchAllConversations = async () => {
+    const fetchInitialData = async () => {
         try {
-            const response = await fetch(`/api/conversations`);
-            if (response.ok) {
-                const convosData: Conversation[] = await response.json();
+            const [convosRes, repliesRes, settingsRes] = await Promise.all([
+                fetch(`/api/conversations`),
+                fetch('/api/quick-replies'),
+                fetch('/api/settings')
+            ]);
+            
+            if (convosRes.ok) {
+                const convosData: Conversation[] = await convosRes.json();
                 const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0, ipAddress: c.ipAddress}]));
                 setConversations(initialConversations);
 
@@ -146,27 +157,25 @@ export default function WorkbenchPage() {
                     });
                 });
             } else {
-              console.error("Failed to fetch conversations:", await response.text());
+              console.error("Failed to fetch conversations:", await convosRes.text());
             }
+
+            if (repliesRes.ok) {
+              const data = await repliesRes.json();
+              setQuickReplies(data);
+            }
+
+             if (settingsRes.ok) {
+                const data = await settingsRes.json();
+                setSettings(data);
+            }
+
         } catch (error) {
-          console.error("Failed to fetch conversations:", error);
+          console.error("Failed to fetch initial data:", error);
         }
-    };
-    
-    const fetchQuickReplies = async () => {
-      try {
-        const response = await fetch('/api/quick-replies');
-        if (response.ok) {
-          const data = await response.json();
-          setQuickReplies(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch quick replies:", error);
-      }
     };
 
-    fetchAllConversations();
-    fetchQuickReplies();
+    fetchInitialData();
   }, [isSessionLoading, session?.userId]);
 
   useEffect(() => {
@@ -556,63 +565,65 @@ export default function WorkbenchPage() {
                                {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
                             </Button>
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
-                            <Popover onOpenChange={() => setAiSuggestion(null)}>
-                                <PopoverTrigger asChild>
-                                    <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
-                                        <Zap className="h-5 w-5 text-muted-foreground" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-80 p-0">
-                                    <Command>
-                                        <CommandInput placeholder="搜索快捷回复..." />
-                                        <CommandList>
-                                            <CommandGroup heading="AI建议">
-                                                <CommandItem
-                                                    onSelect={handleGenerateAiSuggestion}
-                                                    className="cursor-pointer"
-                                                    disabled={isGeneratingSuggestion}
-                                                >
-                                                    {isGeneratingSuggestion ? (
-                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <Sparkles className="mr-2 h-4 w-4 text-yellow-500" />
-                                                    )}
-                                                    <span>生成回复建议</span>
-                                                </CommandItem>
-                                                {aiSuggestion && (
+                            {settings?.enableAiFeatures && (
+                                <Popover onOpenChange={() => setAiSuggestion(null)}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
+                                            <Zap className="h-5 w-5 text-muted-foreground" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-80 p-0">
+                                        <Command>
+                                            <CommandInput placeholder="搜索快捷回复..." />
+                                            <CommandList>
+                                                <CommandGroup heading="AI建议">
                                                     <CommandItem
-                                                        onSelect={() => handleQuickReplySend(aiSuggestion)}
-                                                        className="cursor-pointer text-blue-600 whitespace-normal h-auto"
+                                                        onSelect={handleGenerateAiSuggestion}
+                                                        className="cursor-pointer"
+                                                        disabled={isGeneratingSuggestion}
                                                     >
-                                                        {aiSuggestion}
+                                                        {isGeneratingSuggestion ? (
+                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Sparkles className="mr-2 h-4 w-4 text-yellow-500" />
+                                                        )}
+                                                        <span>生成回复建议</span>
                                                     </CommandItem>
-                                                )}
-                                            </CommandGroup>
-                                            <CommandSeparator />
-                                            <CommandGroup heading="手动回复">
-                                                {quickReplies.length === 0 && !isGeneratingSuggestion && !aiSuggestion && (
-                                                     <CommandEmpty>没有找到快捷回复。</CommandEmpty>
-                                                )}
-                                                {quickReplies.map((reply) => (
-                                                <CommandItem
-                                                    key={reply.id}
-                                                    onSelect={() => {
-                                                        handleQuickReplySend(reply.content);
-                                                        const popoverTrigger = document.querySelector('[aria-controls^="radix-"][aria-expanded="true"]');
-                                                        if (popoverTrigger) {
-                                                           (popoverTrigger as HTMLElement).click();
-                                                        }
-                                                    }}
-                                                    className="cursor-pointer"
-                                                >
-                                                    <span className="truncate">{reply.content}</span>
-                                                </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
+                                                    {aiSuggestion && (
+                                                        <CommandItem
+                                                            onSelect={() => handleQuickReplySend(aiSuggestion)}
+                                                            className="cursor-pointer text-blue-600 whitespace-normal h-auto"
+                                                        >
+                                                            {aiSuggestion}
+                                                        </CommandItem>
+                                                    )}
+                                                </CommandGroup>
+                                                <CommandSeparator />
+                                                <CommandGroup heading="手动回复">
+                                                    {quickReplies.length === 0 && !isGeneratingSuggestion && !aiSuggestion && (
+                                                         <CommandEmpty>没有找到快捷回复。</CommandEmpty>
+                                                    )}
+                                                    {quickReplies.map((reply) => (
+                                                    <CommandItem
+                                                        key={reply.id}
+                                                        onSelect={() => {
+                                                            handleQuickReplySend(reply.content);
+                                                            const popoverTrigger = document.querySelector('[aria-controls^="radix-"][aria-expanded="true"]');
+                                                            if (popoverTrigger) {
+                                                               (popoverTrigger as HTMLElement).click();
+                                                            }
+                                                        }}
+                                                        className="cursor-pointer"
+                                                    >
+                                                        <span className="truncate">{reply.content}</span>
+                                                    </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            )}
                         </div>
                         <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive || isUploading}>
                             发送回复 <Send className="ml-2 h-4 w-4" />

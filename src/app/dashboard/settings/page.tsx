@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Upload, Loader2, Bot, MessageCircle, User, PlusCircle, Trash2, Edit, Save, X, Image as ImageIcon } from "lucide-react"
+import { Upload, Loader2, Bot, MessageCircle, User, PlusCircle, Trash2, Edit, Save, X, Image as ImageIcon, Sparkles } from "lucide-react"
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -45,6 +45,7 @@ const settingsSchema = z.object({
   autoOpenWidget: z.boolean(),
   allowCustomerImageUpload: z.boolean(),
   allowAgentImageUpload: z.boolean(),
+  enableAiFeatures: z.boolean(),
   brandLogoUrl: z.string().url().or(z.literal('')).optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "无效的颜色代码"),
   backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "无效的颜色代码"),
@@ -86,6 +87,7 @@ export default function SettingsPage() {
       autoOpenWidget: true,
       allowCustomerImageUpload: true,
       allowAgentImageUpload: true,
+      enableAiFeatures: true,
       brandLogoUrl: "",
       primaryColor: "#3F51B5",
       backgroundColor: "#F0F2F5",
@@ -165,7 +167,7 @@ export default function SettingsPage() {
 
       toast({
         title: "保存成功",
-        description: "您的通用设置已更新。",
+        description: "您的设置已更新。",
       });
 
     } catch (error) {
@@ -305,7 +307,7 @@ export default function SettingsPage() {
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-10 w-24" />
       </div>
-      <Skeleton className="h-10 w-full max-w-md" />
+      <Skeleton className="h-10 w-full max-w-lg" />
       <Card>
         <CardHeader>
           <Skeleton className="h-7 w-40" />
@@ -346,10 +348,11 @@ export default function SettingsPage() {
         </Button>
       </div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-lg">
+        <TabsList className="grid w-full grid-cols-5 max-w-xl">
           <TabsTrigger value="appearance">小部件外观</TabsTrigger>
           <TabsTrigger value="behavior">聊天行为</TabsTrigger>
           <TabsTrigger value="quick-replies">快捷回复</TabsTrigger>
+          <TabsTrigger value="ai">AI设置</TabsTrigger>
           <TabsTrigger value="general">通用设置</TabsTrigger>
         </TabsList>
 
@@ -597,6 +600,33 @@ export default function SettingsPage() {
                             <p className="text-sm text-muted-foreground mt-2">点击“新建回复”来创建您的第一条快捷回复吧！</p>
                         </div>
                     )}
+                </CardContent>
+            </Card>
+        </TabsContent>
+        
+        <TabsContent value="ai" className="mt-6">
+            <Card>
+                <CardHeader>
+                    <CardTitle>AI 功能设置</CardTitle>
+                    <CardDescription>管理系统中的人工智能辅助功能。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <Controller
+                        name="enableAiFeatures"
+                        control={control}
+                        render={({ field }) => (
+                          <div className="flex items-center justify-between p-4 border rounded-lg">
+                            <div className="flex items-center gap-3">
+                               <Sparkles className="h-6 w-6 text-yellow-500" />
+                               <div>
+                                  <Label htmlFor="enable-ai" className="font-medium">启用AI辅助功能</Label>
+                                  <p className="text-sm text-muted-foreground">例如：在工作台中启用AI回复建议。</p>
+                               </div>
+                            </div>
+                            <Switch id="enable-ai" checked={field.value} onCheckedChange={field.onChange} />
+                          </div>
+                        )}
+                    />
                 </CardContent>
             </Card>
         </TabsContent>
