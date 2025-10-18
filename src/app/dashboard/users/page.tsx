@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MoreHorizontal, Loader2 } from "lucide-react";
+import { MoreHorizontal, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -53,6 +53,18 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useSession } from "@/hooks/use-session";
 
 
 type User = {
@@ -78,6 +90,7 @@ export default function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const { toast } = useToast();
+  const { session } = useSession();
 
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
@@ -116,6 +129,32 @@ export default function UsersPage() {
     });
     setIsModalOpen(true);
   };
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const response = await fetch(`/api/users?id=${userId}`, {
+        method: 'DELETE',
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || '删除失败');
+      }
+
+      setUsers(users.filter(u => u.id !== userId));
+      toast({
+        title: "删除成功",
+        description: "用户已被删除。",
+      });
+
+    } catch (error: any) {
+       toast({
+        variant: "destructive",
+        title: "删除失败",
+        description: error.message,
+      });
+    }
+  }
 
   const onSubmit = async (data: UserFormValues) => {
     setIsSaving(true);
@@ -163,6 +202,8 @@ export default function UsersPage() {
       <Skeleton className="h-12 w-full" />
     </div>
   );
+
+  const canDelete = users.length > 1;
 
   return (
     <>
@@ -232,9 +273,30 @@ export default function UsersPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>操作</DropdownMenuLabel>
                             <DropdownMenuItem onClick={() => handleEditClick(user)}>编辑</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">
-                              删除
-                            </DropdownMenuItem>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 w-full justify-start text-destructive hover:text-destructive font-normal"
+                                      disabled={!canDelete || user.id === session?.userId}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      删除
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                    <AlertDialogTitle>确认删除？</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        此操作无法撤销。您确定要永久删除用户 <strong>{user.name}</strong> 吗？
+                                    </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                    <AlertDialogCancel>取消</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDeleteUser(user.id)} className="bg-destructive hover:bg-destructive/90">删除</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

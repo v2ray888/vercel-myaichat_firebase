@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/db';
 import { users } from '@/lib/schema';
-import { desc, eq, and, ne } from 'drizzle-orm';
+import { desc, eq, and, ne, count } from 'drizzle-orm';
 import { z } from 'zod';
 import * as bcrypt from 'bcryptjs';
 
@@ -119,5 +119,43 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: { email: ['该邮箱已被注册'] } }, { status: 409 });
     }
     return NextResponse.json({ error: '更新用户失败' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await getSession();
+  if (!session?.userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const idToDelete = searchParams.get('id');
+
+  if (!idToDelete) {
+    return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+  }
+
+  try {
+    const userCountResult = await db.select({ value: count() }).from(users);
+    const userCount = userCountResult[0].value;
+
+    if (userCount <= 1) {
+      return NextResponse.json({ error: '无法删除最后一个用户' }, { status: 400 });
+    }
+    
+    if (idToDelete === session.userId) {
+      return NextResponse.json({ error: '无法删除您自己的账户' }, { status: 400 });
+    }
+
+    const deletedUser = await db.delete(users).where(eq(users.id, idToDelete)).returning({ id: users.id });
+
+    if (deletedUser.length === 0) {
+      return NextResponse.json({ error: '用户未找到' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, id: deletedUser[0].id });
+  } catch (error) {
+    console.error('Failed to delete user:', error);
+    return NextResponse.json({ error: '删除用户失败' }, { status: 500 });
   }
 }
