@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
@@ -363,7 +362,7 @@ export default function WorkbenchPage() {
 
   return (
     <div className="h-[calc(100vh-60px-3rem)] grid md:grid-cols-[300px_1fr] lg:grid-cols-[350px_1fr]">
-      <div className="border-r bg-card flex flex-col">
+      <div className="border-r bg-card flex flex-col h-full overflow-hidden">
         <div className="p-4 border-b">
           <h2 className="text-xl font-bold font-headline">对话列表</h2>
           <div className="relative mt-2">
@@ -422,10 +421,10 @@ export default function WorkbenchPage() {
           })}
         </div>
       </div>
-       <div className="flex flex-col h-full bg-background">
+       <div className="flex flex-col h-full bg-background overflow-hidden">
         {selectedConversation ? (
           <>
-            <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
               <div>
                  <h3 className="text-lg font-semibold font-headline flex items-center gap-2">
                     {selectedConversation.name}
@@ -471,7 +470,7 @@ export default function WorkbenchPage() {
               ))}
               <div ref={messagesEndRef} />
             </div>
-            <div className="p-4 border-t bg-card">
+            <div className="p-4 border-t bg-card flex-shrink-0">
               <Card>
                 <CardContent className="p-2">
                     <Textarea
@@ -547,3 +546,5 @@ export default function WorkbenchPage() {
     </div>
   )
 }
+
+    
