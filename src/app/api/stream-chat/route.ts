@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
              const conversationPayload = {
               id: currentConversationId,
               name: senderName || `访客`,
-              ipAddress: ip,
+              ipAddress: ip, // THIS WAS THE MISSING PIECE
               messages: [newMessage],
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,

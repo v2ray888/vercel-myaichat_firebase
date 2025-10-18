@@ -182,19 +182,18 @@ export default function WorkbenchPage() {
     });
 
     agentChannel.bind('new-message', (msg: Message & { conversationName?: string, conversationIp?: string }) => {
-        if (msg.sender === 'agent') return; // Ignore messages from other agents or self
+        if (msg.sender === 'agent') return; 
 
         setConversations(prev => {
             const newConvos = new Map(prev);
-            const convo = newConvos.get(msg.conversationId);
+            let convo = newConvos.get(msg.conversationId);
             if (convo) {
                 const newMessages = [...convo.messages, msg];
                 const isSelected = msg.conversationId === selectedConversationId;
                 const unread = !isSelected ? (convo.unread || 0) + 1 : convo.unread;
                 newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
             } else {
-                // This handles cases where a message for a new conversation arrives before the new-conversation event.
-                const newConvo: Conversation = {
+                convo = {
                   id: msg.conversationId,
                   name: msg.conversationName || "New Conversation",
                   ipAddress: msg.conversationIp,
@@ -203,7 +202,7 @@ export default function WorkbenchPage() {
                   isActive: true,
                   updatedAt: new Date().toISOString(),
                 };
-                newConvos.set(msg.conversationId, newConvo);
+                newConvos.set(msg.conversationId, convo);
             }
             return newConvos;
         });
