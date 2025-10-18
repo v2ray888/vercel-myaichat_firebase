@@ -1,7 +1,7 @@
 
 import { db } from '@/lib/db';
 import { conversations, messages as messagesTable, users } from '@/lib/schema';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, and } from 'drizzle-orm';
 import Pusher from 'pusher';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     // Update the conversation's updatedAt timestamp
     await db.update(conversations)
-      .set({ updatedAt: new Date() })
+      .set({ updatedAt: new Date(), isActive: true })
       .where(eq(conversations.id, currentConversationId));
 
     const messagePayload: any = {
@@ -94,7 +94,6 @@ export async function POST(req: NextRequest) {
 
     if (imageUrl) {
         messagePayload.metadata = { imageUrl };
-        // Use a placeholder for text if there's an image, or leave it null
         messagePayload.text = message || null; 
     } else {
         messagePayload.text = message;
@@ -104,15 +103,10 @@ export async function POST(req: NextRequest) {
 
     const newMessage = insertedMessages[0];
     
-    // Channel for the customer widget
     const customerChannelName = `private-conversation-${currentConversationId}`;
     
     if (isNewConversation) {
-        // Find admin based on appId in a real scenario. For now, hardcoded.
-        const admin = await db.query.users.findFirst({
-             // In a real app, you would look up the user associated with the appId
-             // For now, we continue to use a hardcoded admin for simplicity.
-        });
+        const admin = await db.query.users.findFirst();
 
         if (admin && admin.id) {
             const agentChannel = `private-agent-${admin.id}`;
@@ -124,10 +118,9 @@ export async function POST(req: NextRequest) {
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,
               updatedAt: new Date().toISOString(),
-              unread: 1, // Set unread count to 1 for new conversations
+              unread: 1, 
             };
             try {
-                // Send the payload as a JS object, not a string
                 await pusher.trigger(agentChannel, 'new-conversation', conversationPayload);
             } catch (e) {
                 console.error("Pusher trigger failed for new-conversation:", e);
@@ -135,12 +128,10 @@ export async function POST(req: NextRequest) {
         }
     }
 
-    // Trigger message for both customer and agent
     try {
-        // Exclude agent-sent messages from being sent back to the agent channel
         if (role !== 'agent') {
             const currentConversation = await db.query.conversations.findFirst({ where: eq(conversations.id, currentConversationId) });
-            const admin = await db.query.users.findFirst(); // simplified admin lookup
+            const admin = await db.query.users.findFirst(); 
             if (admin?.id) {
                 const agentChannel = `private-agent-${admin.id}`;
                 await pusher.trigger(agentChannel, 'new-message', { ...newMessage, conversationName: currentConversation?.customerName, conversationIp: currentConversation?.ipAddress });
@@ -161,4 +152,37 @@ export async function POST(req: NextRequest) {
         details: error.message 
     }, { status: 500 });
   }
+}
+
+
+export async function DELETE(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const conversationId = searchParams.get('id');
+
+    if (!conversationId) {
+        return NextResponse.json({ error: 'Conversation ID is required' }, { status: 400 });
+    }
+
+    try {
+        const updated = await db.update(conversations)
+            .set({ isActive: false })
+            .where(eq(conversations.id, conversationId))
+            .returning();
+
+        if (updated.length === 0) {
+            return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+        }
+        
+        // Optionally, trigger a pusher event to remove it from UI in real-time
+        const admin = await db.query.users.findFirst();
+        if (admin?.id) {
+             const agentChannel = `private-agent-${admin.id}`;
+             await pusher.trigger(agentChannel, 'conversation-archived', { conversationId });
+        }
+
+        return NextResponse.json({ success: true, conversationId });
+    } catch (error: any) {
+        console.error("Failed to archive conversation:", error);
+        return NextResponse.json({ error: 'Failed to archive conversation', details: error.message }, { status: 500 });
+    }
 }

@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { conversations as conversationsTable } from '@/lib/schema';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -13,19 +13,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // This query now fetches ALL active conversations.
-    // The sorting will now be handled client-side for dynamic updates.
     const allConversations = await db.query.conversations.findMany({
-        orderBy: [desc(conversationsTable.updatedAt)] // Keep a sensible default server-side sort
+        where: eq(conversationsTable.isActive, true),
+        orderBy: [desc(conversationsTable.updatedAt)]
     });
 
     const result = allConversations.map(c => ({
         id: c.id,
         name: c.customerName,
         ipAddress: c.ipAddress,
-        messages: [], // Always return an empty array. Frontend will fetch on demand.
+        messages: [], 
         isActive: c.isActive,
-        unread: 0, // Initialize unread count to 0, client will manage it.
+        unread: 0, 
         updatedAt: c.updatedAt,
     }));
 

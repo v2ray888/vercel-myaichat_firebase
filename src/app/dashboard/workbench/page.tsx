@@ -30,7 +30,7 @@ import {
 type Message = {
   id: string;
   text: string | null;
-  sender: 'agent' | 'customer' | 'user'; // user is for local optimistic updates
+  sender: 'agent' | 'customer' | 'user'; 
   timestamp: string;
   conversationId: string;
   metadata?: { imageUrl?: string };
@@ -46,7 +46,6 @@ type Conversation = {
   updatedAt: string;
 };
 
-// Represents the latest message for display in the conversation list
 type LatestMessage = {
   text: string | null;
   timestamp: string;
@@ -78,13 +77,13 @@ export default function WorkbenchPage() {
       if (!response.ok) {
         throw new Error(`Failed to fetch history: ${response.statusText}`);
       }
-      const data: { messages: Message[] } = await response.json();
+      const data: { messages: Message[], ipAddress?: string } = await response.json();
       if (data && data.messages) {
         setConversations(prev => {
           const newConvos = new Map(prev);
           const convo = newConvos.get(convId);
           if (convo) {
-            newConvos.set(convId, { ...convo, messages: data.messages });
+            newConvos.set(convId, { ...convo, messages: data.messages, ipAddress: data.ipAddress });
           }
           return newConvos;
         });
@@ -101,7 +100,6 @@ export default function WorkbenchPage() {
   const handleSelectConversation = useCallback(async (id: string) => {
     setSelectedConversationId(id);
     
-    // Reset unread count for the selected conversation
     setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(id);
@@ -112,7 +110,6 @@ export default function WorkbenchPage() {
     });
 
     const currentConvo = conversations.get(id);
-    // Fetch history only if it's empty
     if (currentConvo && currentConvo.messages.length === 0) {
       await fetchConversationHistory(id);
     }
@@ -130,7 +127,6 @@ export default function WorkbenchPage() {
                 const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0}]));
                 setConversations(initialConversations);
 
-                // Pre-fetch latest message for each conversation
                 convosData.forEach(c => {
                   fetch(`/api/stream-chat?conversationId=${c.id}`)
                     .then(res => res.json())
@@ -177,7 +173,6 @@ export default function WorkbenchPage() {
     const agentChannel = pusher.subscribe(agentChannelName);
     
     agentChannel.bind('new-conversation', (data: Conversation) => {
-      // Ensure messages is an array and set unread count
       const newConvo = { ...data, messages: data.messages || [], unread: data.unread || 1 };
       setConversations(prev => new Map(prev).set(data.id, newConvo));
       if(newConvo.messages.length > 0) {
@@ -186,38 +181,49 @@ export default function WorkbenchPage() {
       }
     });
 
-    const conversationChannels = new Map<string, any>();
-    
-    const subscribeToConversation = (convId: string) => {
-        if (conversationChannels.has(convId)) return;
-        const channelName = `private-conversation-${convId}`;
-        const channel = pusher.subscribe(channelName);
-        channel.bind('new-message', (msg: Message) => {
-          // Only process messages from the customer to avoid duplication
-          if (msg.sender === 'customer') {
-            setConversations(prev => {
-              const newConvos = new Map(prev);
-              const convo = newConvos.get(msg.conversationId);
-              if (convo) {
+    agentChannel.bind('new-message', (msg: Message & { conversationName?: string, conversationIp?: string }) => {
+        setConversations(prev => {
+            const newConvos = new Map(prev);
+            const convo = newConvos.get(msg.conversationId);
+            if (convo) {
                 const newMessages = [...convo.messages, msg];
                 const isSelected = msg.conversationId === selectedConversationId;
                 const unread = !isSelected ? (convo.unread || 0) + 1 : convo.unread;
                 newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
-              }
-              return newConvos;
-            });
-            setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp, metadata: msg.metadata }));
-          }
+            } else {
+                // This handles cases where a message for a new conversation arrives before the new-conversation event.
+                const newConvo: Conversation = {
+                  id: msg.conversationId,
+                  name: msg.conversationName || "New Conversation",
+                  ipAddress: msg.conversationIp,
+                  messages: [msg],
+                  unread: 1,
+                  isActive: true,
+                  updatedAt: new Date().toISOString(),
+                };
+                newConvos.set(msg.conversationId, newConvo);
+            }
+            return newConvos;
         });
-        conversationChannels.set(convId, channel);
-    }
+        setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp, metadata: msg.metadata }));
+    });
     
-    conversations.forEach((_, id) => subscribeToConversation(id));
+    agentChannel.bind('conversation-archived', ({ conversationId }: { conversationId: string }) => {
+        setConversations(prev => {
+            const newConvos = new Map(prev);
+            newConvos.delete(conversationId);
+            return newConvos;
+        });
+        if (selectedConversationId === conversationId) {
+            setSelectedConversationId(null);
+        }
+    });
+
 
     return () => {
         pusher.disconnect();
     }
-  }, [session?.userId, conversations, selectedConversationId]);
+  }, [session?.userId, selectedConversationId]);
 
 
   useEffect(() => {
@@ -265,7 +271,6 @@ export default function WorkbenchPage() {
       });
     } catch (error) {
       console.error("Failed to send message:", error);
-      // Revert optimistic update on failure
       setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(selectedConversationId);
@@ -274,6 +279,27 @@ export default function WorkbenchPage() {
         }
         return newConvos;
       });
+    }
+  };
+  
+  const handleArchiveConversation = async () => {
+    if (!selectedConversationId) return;
+
+    const originalConversations = new Map(conversations);
+    
+    // Optimistic UI update
+    const newConvos = new Map(conversations);
+    newConvos.delete(selectedConversationId);
+    setConversations(newConvos);
+    setSelectedConversationId(null);
+    
+    try {
+        await fetch(`/api/stream-chat?id=${selectedConversationId}`, { method: 'DELETE' });
+    } catch (error) {
+        console.error("Failed to archive conversation:", error);
+        // Revert on failure
+        setConversations(originalConversations);
+        setSelectedConversationId(selectedConversationId);
     }
   };
 
@@ -302,10 +328,8 @@ export default function WorkbenchPage() {
 
     } catch (error) {
       console.error("Failed to upload and send image:", error);
-      // Optionally show an error message to the user
     } finally {
       setIsUploading(false);
-       // Reset file input
       if(fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -320,7 +344,6 @@ export default function WorkbenchPage() {
     fileInputRef.current?.click();
   };
 
-  // Sort conversations: those with unread messages first, then by latest update time
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
     if (a.unread > 0 && b.unread === 0) return -1;
     if (b.unread > 0 && a.unread === 0) return 1;
@@ -402,7 +425,7 @@ export default function WorkbenchPage() {
                   }
                 </h3>
               </div>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" onClick={handleArchiveConversation}>
                 <Archive className="h-4 w-4" />
               </Button>
             </div>
@@ -475,10 +498,8 @@ export default function WorkbenchPage() {
                                                 {quickReplies.map((reply) => (
                                                 <CommandItem
                                                     key={reply.id}
-                                                    onSelect={(currentValue) => {
+                                                    onSelect={() => {
                                                         handleQuickReplySend(reply.content);
-                                                        // This is a workaround to prevent the popover from closing and re-opening
-                                                        // and sending the message twice.
                                                         const popoverTrigger = document.querySelector('[aria-controls^="radix-"][aria-expanded="true"]');
                                                         if (popoverTrigger) {
                                                            (popoverTrigger as HTMLElement).click();
