@@ -1,12 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/db';
 import { settings as settingsTable } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
-// Zod schema for validating incoming settings data
-const settingsSchema = z.object({
+// Zod schema for validating incoming settings data for updates
+const settingsUpdateSchema = z.object({
     welcomeMessage: z.string().optional(),
     autoOpenWidget: z.boolean().optional(),
     allowCustomerImageUpload: z.boolean().optional(),
@@ -19,9 +19,40 @@ const settingsSchema = z.object({
 });
 
 
-export async function GET() {
-    const session = await getSession();
+export async function GET(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const appId = searchParams.get('appId');
 
+    // Scenario 1: Public request with an appId (for the widget)
+    if (appId) {
+        try {
+            const publicSettings = await db.query.settings.findFirst({
+                columns: {
+                    // Only expose non-sensitive fields
+                    id: true,
+                    welcomeMessage: true,
+                    autoOpenWidget: true,
+                    brandLogoUrl: true,
+                    primaryColor: true,
+                    backgroundColor: true,
+                    workspaceName: true,
+                },
+                where: eq(settingsTable.id, appId),
+            });
+
+            if (!publicSettings) {
+                return NextResponse.json({ error: 'Settings not found' }, { status: 404 });
+            }
+            return NextResponse.json(publicSettings);
+
+        } catch (error) {
+            console.error('Failed to get public settings by appId:', error);
+            return NextResponse.json({ error: 'Failed to retrieve settings' }, { status: 500 });
+        }
+    }
+
+    // Scenario 2: Authenticated request from the dashboard
+    const session = await getSession();
     if (!session?.userId) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -43,7 +74,7 @@ export async function GET() {
         return NextResponse.json(userSettings);
 
     } catch (error) {
-        console.error('Failed to get settings:', error);
+        console.error('Failed to get user settings:', error);
         return NextResponse.json({ error: 'Failed to retrieve settings' }, { status: 500 });
     }
 }
@@ -58,7 +89,7 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        const validation = settingsSchema.safeParse(body);
+        const validation = settingsUpdateSchema.safeParse(body);
 
         if (!validation.success) {
             return NextResponse.json({ error: 'Invalid data', details: validation.error.flatten() }, { status: 400 });

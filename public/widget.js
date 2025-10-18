@@ -1,49 +1,45 @@
 
 (function() {
-  // Wait for the DOM to be fully loaded
-  document.addEventListener("DOMContentLoaded", function() {
-    // Find the script tag itself to read the settings
-    const scriptTag = document.currentScript;
-    if (!scriptTag) {
-      console.error("ZhiLiaoTong: Could not find the script tag. Please ensure the script is loaded correctly.");
-      return;
+    // Check if the script is already running
+    if (window.zhiliaotongScriptLoaded) {
+        return;
     }
-    
-    // Get the appId from the window settings object
+    window.zhiliaotongScriptLoaded = true;
+
+    // Get the appId from the global settings object
     const appId = window.zhiliaotongSettings?.appId;
     if (!appId) {
-      console.error("ZhiLiaoTong: appId is not defined. Please set window.zhiliaotongSettings.appId.");
-      return;
+        console.error('智聊通: App ID (appId) 未在 window.zhiliaotongSettings 中设置。');
+        return;
     }
 
-    // Determine the origin of the widget script to construct the iframe URL
-    // This makes it work in development, preview, and production
-    const scriptSrc = new URL(scriptTag.src);
-    const widgetHost = scriptSrc.origin;
+    // Create a container for the widget
+    const widgetContainer = document.createElement('div');
+    widgetContainer.id = 'zhiliaotong-widget-container';
+    widgetContainer.style.position = 'fixed';
+    widgetContainer.style.bottom = '0';
+    widgetContainer.style.right = '0';
+    widgetContainer.style.width = '420px'; // Max width of widget
+    widgetContainer.style.height = '80vh'; // Max height of widget
+    widgetContainer.style.maxWidth = '100vw';
+    widgetContainer.style.maxHeight = '100vh';
+    widgetContainer.style.border = 'none';
+    widgetContainer.style.zIndex = '999999';
 
-    // Create the iframe element
+    // Create the iframe
     const iframe = document.createElement('iframe');
+    const iframeSrc = new URL(window.location.origin);
+    iframeSrc.pathname = '/widget';
+    iframeSrc.searchParams.append('appId', appId);
     
-    // Construct the URL for the widget page
-    const iframeUrl = new URL('/widget', widgetHost);
-    iframeUrl.searchParams.set('appId', appId);
-    iframe.src = iframeUrl.toString();
-
-    // Style the iframe to be a transparent overlay where the widget will live
-    iframe.style.position = 'fixed';
-    iframe.style.bottom = '0';
-    iframe.style.right = '0';
+    iframe.src = iframeSrc.toString();
     iframe.style.width = '100%';
     iframe.style.height = '100%';
-    iframe.style.maxWidth = '420px'; // Max width of the expanded chat card
-    iframe.style.maxHeight = '800px'; // Max height to contain the widget
     iframe.style.border = 'none';
-    iframe.style.backgroundColor = 'transparent';
-    iframe.style.zIndex = '999999999';
-    iframe.setAttribute('allowtransparency', 'true');
-    iframe.setAttribute('frameborder', '0');
+    iframe.title = '智聊通客服';
 
-    // Append the iframe to the body of the host page
-    document.body.appendChild(iframe);
-  });
+    // Append iframe to container and container to body
+    widgetContainer.appendChild(iframe);
+    document.body.appendChild(widgetContainer);
+
 })();

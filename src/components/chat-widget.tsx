@@ -6,12 +6,12 @@ import { MessageCircle, X, Send, Bot, User, Paperclip, Loader2 } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { cn } from '@/lib/utils';
 import { Separator } from './ui/separator';
 import { Input } from './ui/input';
 import Image from 'next/image';
 import Pusher from 'pusher-js';
+import { useSession } from '@/hooks/use-session';
 
 type Message = {
   id: string;
@@ -20,44 +20,106 @@ type Message = {
   timestamp: string;
 };
 
-// We wrap the component that uses `useSearchParams` in a Suspense boundary
-export default function ChatWidgetWrapper() {
-  return (
-    <Suspense>
-      <ChatWidget />
-    </Suspense>
-  )
-}
+type WidgetSettings = {
+    id: string;
+    welcomeMessage: string;
+    autoOpenWidget: boolean;
+    brandLogoUrl: string | null;
+    primaryColor: string;
+    backgroundColor: string;
+    workspaceName: string;
+};
 
-let pusherClient: Pusher | null = null;
-
-const getPusherClient = () => {
-    if (!pusherClient) {
-        if (typeof window !== "undefined") {
-            pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
-                cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
-                authEndpoint: '/api/pusher-auth',
-            });
-        }
-    }
-    return pusherClient;
-}
+// Skeleton component for the initial loading state
+const WidgetSkeleton = () => (
+    <Button 
+        className="fixed bottom-4 right-4 h-16 w-16 rounded-full shadow-lg z-50 animate-pulse bg-muted"
+        aria-label="正在加载聊天窗口"
+        disabled
+    >
+        <MessageCircle className="h-8 w-8 text-muted-foreground" />
+    </Button>
+);
 
 
 function ChatWidget() {
+    const [settings, setSettings] = useState<WidgetSettings | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
     const [isOpen, setIsOpen] = useState(false); 
-    const [messages, setMessages] = useState<Message[]>([
-        { id: 'initial-message', text: '您好！我是智聊通智能客服，有什么可以帮助您的吗？', sender: 'bot', timestamp: new Date().toISOString() },
-    ]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [conversationId, setConversationId] = useState<string | null>(null);
     const [isConnecting, setIsConnecting] = useState(false);
     
     const searchParams = useSearchParams();
-    const appId = searchParams.get('appId'); 
+    const { session, isLoading: isSessionLoading } = useSession();
+
+    useEffect(() => {
+        const fetchSettings = async () => {
+            let appId: string | null = null;
+            
+            // Priority 1: Get appId from URL (for iframe embedding)
+            appId = searchParams.get('appId');
+
+            // Priority 2: Get appId from window object (for script injection)
+            if (!appId && typeof window !== 'undefined' && (window as any).zhiliaotongSettings) {
+                appId = (window as any).zhiliaotongSettings.appId;
+            }
+
+            // Priority 3: If in-app and logged in, fetch from API
+            if (!appId && !isSessionLoading && session) {
+                 try {
+                    const res = await fetch('/api/settings');
+                    if (res.ok) {
+                        const data = await res.json();
+                        appId = data.id;
+                    }
+                } catch (error) {
+                    console.error("In-app settings fetch failed:", error);
+                }
+            }
+            
+            if (appId) {
+                try {
+                    const res = await fetch(`/api/settings?appId=${appId}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        setSettings(data);
+                        setMessages([{ id: 'initial-message', text: data.welcomeMessage || '您好！有什么可以帮助您的吗？', sender: 'bot', timestamp: new Date().toISOString() }]);
+                        if (data.autoOpenWidget && !sessionStorage.getItem('chat-widget-opened')) {
+                            setIsOpen(true);
+                            sessionStorage.setItem('chat-widget-opened', 'true');
+                        }
+                    } else {
+                        console.error("Failed to fetch widget settings:", await res.text());
+                    }
+                } catch (error) {
+                    console.error("Error fetching widget settings:", error);
+                }
+            }
+            
+            setIsLoading(false);
+        };
+
+        fetchSettings();
+    }, [searchParams, session, isSessionLoading]);
+
+
+    let pusherClient: Pusher | null = null;
+    const getPusherClient = () => {
+        if (!pusherClient) {
+            if (typeof window !== "undefined") {
+                pusherClient = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+                    cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+                    authEndpoint: '/api/pusher-auth',
+                });
+            }
+        }
+        return pusherClient;
+    }
+
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const brandLogo = PlaceHolderImages.find(p => p.id === 'brand-logo');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const subscribeToChannel = (convId: string) => {
@@ -92,8 +154,7 @@ function ChatWidget() {
     
     useEffect(() => {
         const storedConvId = sessionStorage.getItem('chat-conversation-id');
-        // Only try to connect if the widget is open for the first time or if a conversation already exists
-        if (isOpen && !conversationId && storedConvId) {
+        if (isOpen && !conversationId && storedConvId && settings) {
              setConversationId(storedConvId);
              subscribeToChannel(storedConvId);
             
@@ -116,9 +177,8 @@ function ChatWidget() {
         
         return () => {
             window.removeEventListener('beforeunload', handleUnload);
-            // We can leave the disconnection logic to happen on page unload
         };
-    }, [isOpen, conversationId]); 
+    }, [isOpen, conversationId, settings]); 
 
     useEffect(() => {
         if (isOpen) {
@@ -127,7 +187,7 @@ function ChatWidget() {
     }, [messages, isOpen]);
 
     const handleSendMessage = async () => {
-        if (!inputValue.trim()) return;
+        if (!inputValue.trim() || !settings) return;
 
         const userMessage: Message = {
             id: crypto.randomUUID(),
@@ -148,7 +208,7 @@ function ChatWidget() {
                   conversationId: conversationId,
                   role: 'customer',
                   senderName: `访客`,
-                  appId: appId,
+                  appId: settings.id,
                 }),
             });
             if (!response.ok) throw new Error('发送失败');
@@ -171,30 +231,52 @@ function ChatWidget() {
         }
     };
     
+    // While loading settings, show skeleton
+    if (isLoading) {
+        return <WidgetSkeleton />;
+    }
+
+    // If no settings could be loaded, render nothing
+    if (!settings) {
+        return null;
+    }
+    
+    const dynamicStyles = {
+        '--widget-primary-color': settings.primaryColor || '#3F51B5',
+        '--widget-background-color': settings.backgroundColor || '#F0F2F5',
+    } as React.CSSProperties;
+
+
     if (!isOpen) {
         return (
-            <Button 
-                className="fixed bottom-4 right-4 h-16 w-16 rounded-full shadow-lg z-50 animate-in fade-in zoom-in-50"
-                onClick={() => setIsOpen(true)}
-                aria-label="打开聊天窗口"
-            >
-                <MessageCircle className="h-8 w-8" />
-            </Button>
+            <div style={dynamicStyles}>
+                <Button 
+                    className="fixed bottom-4 right-4 h-16 w-16 rounded-full shadow-lg z-50 animate-in fade-in zoom-in-50 bg-[--widget-primary-color] hover:bg-[--widget-primary-color]/90"
+                    onClick={() => setIsOpen(true)}
+                    aria-label="打开聊天窗口"
+                >
+                    <MessageCircle className="h-8 w-8" />
+                </Button>
+            </div>
         );
     }
     
     return (
-        <div className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-5">
+        <div style={dynamicStyles} className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-5">
             <Card className="w-full max-w-sm h-[60vh] md:h-[70vh] max-h-[700px] rounded-lg shadow-2xl flex flex-col overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between p-3 bg-primary text-primary-foreground">
+                <CardHeader className="flex flex-row items-center justify-between p-3 bg-[--widget-primary-color] text-primary-foreground">
                     <div className="flex items-center gap-3">
-                        {brandLogo && (
-                            <Avatar className="h-9 w-9 border-2 border-primary-foreground/50">
-                                <Image src={brandLogo.imageUrl} alt="品牌标识" width={36} height={36} data-ai-hint={brandLogo.imageHint} />
+                        {settings.brandLogoUrl ? (
+                            <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 bg-white">
+                                <Image src={settings.brandLogoUrl} alt="品牌标识" width={36} height={36} className="object-contain" />
+                            </Avatar>
+                        ) : (
+                             <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 flex items-center justify-center bg-white">
+                                <Bot size={20} className="text-gray-600"/>
                             </Avatar>
                         )}
                         <div>
-                            <p className="font-semibold text-base">智聊通客服</p>
+                            <p className="font-semibold text-base">{settings.workspaceName || '智聊通客服'}</p>
                             <p className="text-xs text-primary-foreground/80">
                                {isConnecting ? '正在连接...' : (pusherClient?.connection.state === 'connected' ? '在线' : '已离线')}
                             </p>
@@ -203,26 +285,26 @@ function ChatWidget() {
                     <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-8 w-8 text-primary-foreground hover:bg-primary/80" 
+                        className="h-8 w-8 text-primary-foreground hover:bg-white/20" 
                         onClick={() => setIsOpen(false)}
                         aria-label="关闭聊天窗口"
                     >
                         <X className="h-5 w-5" />
                     </Button>
                 </CardHeader>
-                <CardContent className="flex-1 p-4 overflow-y-auto space-y-4 bg-background">
+                <CardContent className="flex-1 p-4 overflow-y-auto space-y-4 bg-[--widget-background-color]">
                     {messages.map((message) => (
                         <div key={message.id} className={cn("flex items-end gap-2", message.sender === 'user' ? 'justify-end' : 'justify-start')}>
                              {message.sender !== 'user' && message.sender !== 'system' && (
                                 <Avatar className="h-8 w-8">
-                                    <AvatarImage src={brandLogo?.imageUrl} alt="客服头像" />
+                                    {settings.brandLogoUrl ? <AvatarImage src={settings.brandLogoUrl} alt="客服头像" /> : null}
                                     <AvatarFallback><Bot size={18}/></AvatarFallback>
                                 </Avatar>
                             )}
                             {message.sender !== 'system' ? (
                                 <div className={cn(
                                     "max-w-[75%] rounded-lg px-3 py-2 text-sm",
-                                    message.sender === 'user' ? 'bg-primary text-primary-foreground rounded-br-none' : 'bg-muted text-foreground rounded-bl-none'
+                                    message.sender === 'user' ? 'bg-[--widget-primary-color] text-primary-foreground rounded-br-none' : 'bg-card text-foreground rounded-bl-none shadow-sm'
                                 )}>
                                     <p>{message.text}</p>
                                 </div>
@@ -264,7 +346,7 @@ function ChatWidget() {
                             <Button 
                                 onClick={handleSendMessage} 
                                 size="icon" 
-                                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 bg-[--widget-primary-color] hover:bg-[--widget-primary-color]/90"
                                 disabled={!inputValue.trim() || (isConnecting && !conversationId)}
                             >
                                 {isConnecting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4" />}
@@ -276,4 +358,13 @@ function ChatWidget() {
             </Card>
         </div>
     );
+}
+
+// Wrapper to provide Suspense boundary for useSearchParams
+export default function ChatWidgetWrapper() {
+    return (
+        <Suspense>
+            <ChatWidget />
+        </Suspense>
+    )
 }

@@ -9,7 +9,6 @@ import { Copy } from "lucide-react"
 
 type Settings = {
   id: string;
-  // other settings properties are not needed for this page
 }
 
 export default function CodePage() {
@@ -19,8 +18,6 @@ export default function CodePage() {
   const [widgetScriptUrl, setWidgetScriptUrl] = useState("");
 
   useEffect(() => {
-    // Dynamically construct the widget URL based on the current host.
-    // This ensures it works in development, preview, and production.
     setWidgetScriptUrl(`${window.location.origin}/widget.js`);
 
     async function fetchSettings() {
