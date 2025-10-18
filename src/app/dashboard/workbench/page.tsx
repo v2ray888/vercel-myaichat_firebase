@@ -25,6 +25,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 
 type Message = {
   id: string;
@@ -67,6 +68,7 @@ export default function WorkbenchPage() {
   const { session, isLoading: isSessionLoading } = useSession();
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   
   const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
   
@@ -123,7 +125,7 @@ export default function WorkbenchPage() {
             const response = await fetch(`/api/conversations`);
             if (response.ok) {
                 const convosData: Conversation[] = await response.json();
-                const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0}]));
+                const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0, ipAddress: c.ipAddress}]));
                 setConversations(initialConversations);
 
                 convosData.forEach(c => {
@@ -349,6 +351,11 @@ export default function WorkbenchPage() {
   const handleQuickReplySend = (content: string) => {
     sendMessageToServer(content);
   }
+  
+  const onEmojiClick = (emojiData: EmojiClickData, event: MouseEvent) => {
+    setInputValue(prevInput => prevInput + emojiData.emoji);
+    setIsEmojiPickerOpen(false);
+  };
 
   const handleImageUploadClick = () => {
     fileInputRef.current?.click();
@@ -488,7 +495,16 @@ export default function WorkbenchPage() {
                     />
                     <div className="flex items-center justify-between mt-2">
                         <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Smile className="h-5 w-5 text-muted-foreground" /></Button>
+                            <Popover open={isEmojiPickerOpen} onOpenChange={setIsEmojiPickerOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
+                                        <Smile className="h-5 w-5 text-muted-foreground" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0 border-0">
+                                    <EmojiPicker onEmojiClick={onEmojiClick} />
+                                </PopoverContent>
+                            </Popover>
                             <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive || isUploading} onClick={handleImageUploadClick}>
                                {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
@@ -546,5 +562,3 @@ export default function WorkbenchPage() {
     </div>
   )
 }
-
-    

@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { MessageCircle, X, Send, Bot, User, Paperclip, Loader2, Image as ImageIcon } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Paperclip, Loader2, Image as ImageIcon, Smile } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -13,6 +13,9 @@ import { Separator } from './ui/separator';
 import { Input } from './ui/input';
 import Image from 'next/image';
 import Pusher from 'pusher-js';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+
 
 type Message = {
   id: string;
@@ -56,6 +59,7 @@ function ChatWidgetContent() {
     const [conversationId, setConversationId] = useState<string | null>(null);
     const [isConnecting, setIsConnecting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
     
     const searchParams = useSearchParams();
 
@@ -280,6 +284,11 @@ function ChatWidgetContent() {
         }
     };
     
+    const onEmojiClick = (emojiData: EmojiClickData, event: MouseEvent) => {
+        setInputValue(prevInput => prevInput + emojiData.emoji);
+        setIsEmojiPickerOpen(false);
+    };
+
     // While loading settings, show skeleton
     if (isLoading) {
         return <WidgetSkeleton />;
@@ -373,7 +382,18 @@ function ChatWidgetContent() {
                 </CardContent>
                 <CardFooter className="p-0 flex flex-col bg-card">
                     <Separator />
-                    <div className="p-2 w-full flex items-center gap-2">
+                    <div className="p-2 w-full flex items-center gap-1">
+                         <Popover open={isEmojiPickerOpen} onOpenChange={setIsEmojiPickerOpen}>
+                            <PopoverTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                    <Smile className="h-5 w-5 text-muted-foreground" />
+                                    <span className="sr-only">打开表情选择</span>
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0 border-0" side="top" align="start">
+                                <EmojiPicker onEmojiClick={onEmojiClick} />
+                            </PopoverContent>
+                        </Popover>
                         <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
                         <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isUploading || !settings.allowCustomerImageUpload}>
                             {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Paperclip className="h-5 w-5 text-muted-foreground" />}
