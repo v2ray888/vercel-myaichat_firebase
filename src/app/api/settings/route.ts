@@ -165,23 +165,37 @@ export async function POST(req: Request) {
                         email: usersTable.email,
                     });
                 updatedUser = res[0];
+            } else {
+                updatedUser = await tx.query.users.findFirst({
+                    where: eq(usersTable.id, session.userId!),
+                    columns: { id: true, name: true, email: true },
+                });
             }
 
             // 2. Update workspace settings
-            const updatedSettings = await tx.update(settingsTable)
-                .set({
-                    ...workspaceSettings,
-                    updatedAt: new Date(),
-                })
-                .where(eq(settingsTable.userId, session.userId!))
-                .returning();
+            let updatedSettings;
+            if (Object.keys(workspaceSettings).length > 0) {
+                 const res = await tx.update(settingsTable)
+                    .set({
+                        ...workspaceSettings,
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(settingsTable.userId, session.userId!))
+                    .returning();
+                 updatedSettings = res[0];
+            } else {
+                updatedSettings = await tx.query.settings.findFirst({
+                    where: eq(settingsTable.userId, session.userId!),
+                });
+            }
+           
 
-            if (updatedSettings.length === 0) {
+            if (!updatedSettings) {
                 // This should ideally not happen for a logged-in user if GET logic is correct
                 throw new Error('Settings not found for user');
             }
             
-            return { updatedSettings: updatedSettings[0], updatedUser };
+            return { updatedSettings, updatedUser };
         });
 
         return NextResponse.json({ ...result.updatedSettings, ...result.updatedUser });
