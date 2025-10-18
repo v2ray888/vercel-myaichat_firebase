@@ -41,3 +41,12 @@ export const messages = pgTable('messages', {
     timestamp: timestamp('timestamp').defaultNow().notNull(),
     metadata: jsonb('metadata'), // For image URLs etc.
 });
+
+export const quickReplies = pgTable('quick_replies', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    title: varchar('title', { length: 100 }).notNull(),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});

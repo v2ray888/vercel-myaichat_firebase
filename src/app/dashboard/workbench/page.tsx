@@ -7,11 +7,24 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare } from "lucide-react"
+import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare, Zap } from "lucide-react"
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Card, CardContent } from "@/components/ui/card"
 import Pusher from 'pusher-js';
 import { useSession } from "@/hooks/use-session"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 
 type Message = {
   id: string;
@@ -36,6 +49,12 @@ type LatestMessage = {
   timestamp: string;
 } | null;
 
+type QuickReply = {
+  id: string;
+  title: string;
+  content: string;
+};
+
 export default function WorkbenchPage() {
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
   const [latestMessages, setLatestMessages] = useState<Map<string, LatestMessage>>(new Map());
@@ -45,10 +64,10 @@ export default function WorkbenchPage() {
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar')?.imageUrl;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { session, isLoading: isSessionLoading } = useSession();
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   
   const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
   
-  // Fetches full message history for a specific conversation
   const fetchConversationHistory = async (convId: string) => {
     try {
       const response = await fetch(`/api/stream-chat?conversationId=${convId}`);
@@ -94,7 +113,6 @@ export default function WorkbenchPage() {
 
   }, [conversations]);
 
-  // Effect for initializing and fetching initial data
   useEffect(() => {
     if (isSessionLoading || !session?.userId) return;
 
@@ -123,10 +141,23 @@ export default function WorkbenchPage() {
           console.error("Failed to fetch conversations:", error);
         }
     };
+    
+    const fetchQuickReplies = async () => {
+      try {
+        const response = await fetch('/api/quick-replies');
+        if (response.ok) {
+          const data = await response.json();
+          setQuickReplies(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch quick replies:", error);
+      }
+    };
+
     fetchAllConversations();
+    fetchQuickReplies();
   }, [isSessionLoading, session?.userId]);
 
-  // Effect for managing Pusher subscriptions
   useEffect(() => {
     if (!session?.userId) return;
 
@@ -135,20 +166,17 @@ export default function WorkbenchPage() {
         authEndpoint: '/api/pusher-auth',
     });
 
-    // Subscribe to agent-specific channel for new conversations
     const agentChannelName = `private-agent-${session.userId}`;
     const agentChannel = pusher.subscribe(agentChannelName);
     
-    agentChannel.bind('new-conversation', (data: string) => {
-      const newConv: Conversation = JSON.parse(data);
-      setConversations(prev => new Map(prev).set(newConv.id, { ...newConv, isActive: true, unread: 1, messages: newConv.messages || [] }));
-      if(newConv.messages.length > 0) {
-        const lastMsg = newConv.messages[newConv.messages.length - 1];
-        setLatestMessages(prev => new Map(prev).set(newConv.id, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
+    agentChannel.bind('new-conversation', (data: Conversation) => {
+      setConversations(prev => new Map(prev).set(data.id, { ...data, isActive: true, unread: 1, messages: data.messages || [] }));
+      if(data.messages.length > 0) {
+        const lastMsg = data.messages[data.messages.length - 1];
+        setLatestMessages(prev => new Map(prev).set(data.id, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
       }
     });
 
-    // Subscribe to all conversations for new messages
     const conversationChannels = new Map<string, any>();
     
     const subscribeToConversation = (convId: string) => {
@@ -231,6 +259,10 @@ export default function WorkbenchPage() {
     }
   };
 
+  const handleQuickReplySelect = (content: string) => {
+    setInputValue(prev => prev + content);
+  }
+
   const handleImageUpload = () => {
     fileInputRef.current?.click();
   };
@@ -246,7 +278,6 @@ export default function WorkbenchPage() {
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
-
 
   return (
     <div className="h-[calc(100vh-60px-3rem)] grid md:grid-cols-[300px_1fr] lg:grid-cols-[350px_1fr]">
@@ -368,6 +399,35 @@ export default function WorkbenchPage() {
                             <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive} onClick={handleImageUpload}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
+                                        <Zap className="h-5 w-5 text-muted-foreground" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-80 p-0">
+                                    <Command>
+                                        <CommandInput placeholder="搜索快捷回复..." />
+                                        <CommandList>
+                                            <CommandEmpty>没有找到快捷回复。</CommandEmpty>
+                                            <CommandGroup>
+                                                {quickReplies.map((reply) => (
+                                                <CommandItem
+                                                    key={reply.id}
+                                                    onSelect={() => {
+                                                        handleQuickReplySelect(reply.content)
+                                                        // Note: Popover might need manual closing depending on library version
+                                                    }}
+                                                    className="cursor-pointer"
+                                                >
+                                                    <span>{reply.title}</span>
+                                                </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
                         </div>
                         <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive}>
                             发送回复 <Send className="ml-2 h-4 w-4" />
