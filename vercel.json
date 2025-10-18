@@ -1,0 +1,12 @@
+{
+  "build": {
+    "env": {
+      "DATABASE_URL": "@db_url",
+      "PUSHER_APP_ID": "@pusher_app_id",
+      "NEXT_PUBLIC_PUSHER_KEY": "@next_public_pusher_key",
+      "PUSHER_SECRET": "@pusher_secret",
+      "NEXT_PUBLIC_PUSHER_CLUSTER": "@next_public_pusher_cluster",
+      "SESSION_SECRET": "@session_secret"
+    }
+  }
+}
