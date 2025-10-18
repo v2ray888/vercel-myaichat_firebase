@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useEffect, useState } from "react";
@@ -11,9 +12,10 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Upload, Loader2 } from "lucide-react"
+import { Upload, Loader2, Bot, MessageCircle, User } from "lucide-react"
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const settingsSchema = z.object({
   welcomeMessage: z.string().min(1, "欢迎消息不能为空"),
@@ -48,8 +50,7 @@ export default function SettingsPage() {
   });
 
   const { reset, control, handleSubmit, watch } = form;
-  const primaryColor = watch("primaryColor");
-  const backgroundColor = watch("backgroundColor");
+  const watchedValues = watch();
 
   useEffect(() => {
     async function fetchSettings() {
@@ -156,54 +157,101 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="appearance" className="mt-6">
-          <Card>
+           <Card>
             <CardHeader>
               <CardTitle>小部件外观</CardTitle>
-              <CardDescription>自定义您的聊天小部件，以匹配您的品牌风格。</CardDescription>
+              <CardDescription>自定义您的聊天小部件，以匹配您的品牌风格。修改将在此处实时预览。</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label>品牌标识</Label>
-                <div className="flex items-center gap-4">
-                  <div className="w-24 h-24 rounded-md border border-dashed flex items-center justify-center bg-muted">
-                    <Upload className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <Button type="button" variant="outline">上传图片</Button>
-                    <p className="text-xs text-muted-foreground mt-2">推荐尺寸: 128x128px, PNG, JPG, GIF</p>
-                  </div>
+            <CardContent>
+                <div className="grid lg:grid-cols-2 gap-12 items-start">
+                    <div className="space-y-6">
+                        <div className="space-y-2">
+                            <Label>品牌标识</Label>
+                            <div className="flex items-center gap-4">
+                                <div className="w-24 h-24 rounded-md border border-dashed flex items-center justify-center bg-muted">
+                                    <Upload className="h-6 w-6 text-muted-foreground" />
+                                </div>
+                                <div>
+                                    <Button type="button" variant="outline">上传图片</Button>
+                                    <p className="text-xs text-muted-foreground mt-2">推荐尺寸: 128x128px, PNG, JPG, GIF</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Controller
+                            name="primaryColor"
+                            control={control}
+                            render={({ field }) => (
+                                <div className="space-y-2">
+                                <Label htmlFor="primary-color">主颜色</Label>
+                                <div className="relative">
+                                    <Input id="primary-color" {...field} className="pl-10" />
+                                    <div className="absolute left-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border" style={{ backgroundColor: watchedValues.primaryColor }}></div>
+                                </div>
+                                {form.formState.errors.primaryColor && <p className="text-sm text-destructive">{form.formState.errors.primaryColor.message}</p>}
+                                </div>
+                            )}
+                            />
+                            <Controller
+                            name="backgroundColor"
+                            control={control}
+                            render={({ field }) => (
+                                <div className="space-y-2">
+                                <Label htmlFor="background-color">背景颜色</Label>
+                                <div className="relative">
+                                    <Input id="background-color" {...field} className="pl-10" />
+                                    <div className="absolute left-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border" style={{ backgroundColor: watchedValues.backgroundColor }}></div>
+                                </div>
+                                {form.formState.errors.backgroundColor && <p className="text-sm text-destructive">{form.formState.errors.backgroundColor.message}</p>}
+                                </div>
+                            )}
+                            />
+                        </div>
+                    </div>
+                    
+                    <div className="lg:mt-6">
+                        <Label>实时预览</Label>
+                        <div className="mt-2 relative w-full max-w-sm h-[400px] rounded-lg shadow-2xl flex flex-col overflow-hidden ring-1 ring-border" style={{ backgroundColor: watchedValues.backgroundColor }}>
+                             <div className="flex-shrink-0 flex flex-row items-center justify-between p-3 text-white" style={{ backgroundColor: watchedValues.primaryColor }}>
+                                <div className="flex items-center gap-3">
+                                    <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 flex items-center justify-center bg-white">
+                                        <Bot size={20} className="text-gray-600"/>
+                                    </Avatar>
+                                    <div>
+                                        <p className="font-semibold text-base">{watchedValues.workspaceName || '智聊通客服'}</p>
+                                        <p className="text-xs opacity-80">我们在线上</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                                <div className="flex items-end gap-2 justify-start">
+                                    <Avatar className="h-8 w-8">
+                                        <AvatarFallback><Bot size={18}/></AvatarFallback>
+                                    </Avatar>
+                                    <div className="max-w-[75%] rounded-lg px-3 py-2 text-sm bg-card text-foreground rounded-bl-none shadow-sm">
+                                        <p>{watchedValues.welcomeMessage}</p>
+                                    </div>
+                                </div>
+                                 <div className="flex items-end gap-2 justify-end">
+                                     <div className="max-w-[75%] rounded-lg px-3 py-2 text-sm text-white rounded-br-none" style={{backgroundColor: watchedValues.primaryColor}}>
+                                        <p>你好！</p>
+                                    </div>
+                                    <Avatar className="h-8 w-8">
+                                        <AvatarFallback><User size={18}/></AvatarFallback>
+                                    </Avatar>
+                                </div>
+                            </div>
+                            <div className="p-2 border-t bg-card">
+                                 <Input placeholder="输入您的问题..." disabled/>
+                            </div>
+                        </div>
+                         <div className="relative max-w-sm">
+                             <div className="absolute bottom-[-20px] right-[-20px] h-16 w-16 rounded-full shadow-lg flex items-center justify-center text-white" style={{ backgroundColor: watchedValues.primaryColor }}>
+                                 <MessageCircle className="h-8 w-8" />
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Controller
-                  name="primaryColor"
-                  control={control}
-                  render={({ field }) => (
-                    <div className="space-y-2">
-                      <Label htmlFor="primary-color">主颜色</Label>
-                      <div className="relative">
-                        <Input id="primary-color" {...field} className="pl-10" />
-                        <div className="absolute left-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border" style={{ backgroundColor: primaryColor }}></div>
-                      </div>
-                       {form.formState.errors.primaryColor && <p className="text-sm text-destructive">{form.formState.errors.primaryColor.message}</p>}
-                    </div>
-                  )}
-                />
-                <Controller
-                  name="backgroundColor"
-                  control={control}
-                  render={({ field }) => (
-                    <div className="space-y-2">
-                      <Label htmlFor="background-color">背景颜色</Label>
-                      <div className="relative">
-                        <Input id="background-color" {...field} className="pl-10" />
-                        <div className="absolute left-2 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border" style={{ backgroundColor: backgroundColor }}></div>
-                      </div>
-                      {form.formState.errors.backgroundColor && <p className="text-sm text-destructive">{form.formState.errors.backgroundColor.message}</p>}
-                    </div>
-                  )}
-                />
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
