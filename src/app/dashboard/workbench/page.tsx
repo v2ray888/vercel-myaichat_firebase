@@ -96,7 +96,10 @@ export default function WorkbenchPage() {
           const newConvos = new Map(prev);
           const convo = newConvos.get(convId);
           if (convo) {
-            newConvos.set(convId, { ...convo, messages: data.messages, ipAddress: data.ipAddress || convo.ipAddress });
+            // Filter out existing messages to avoid duplicates
+            const existingMessageIds = new Set(convo.messages.map(m => m.id));
+            const newMessages = data.messages.filter(m => !existingMessageIds.has(m.id));
+            newConvos.set(convId, { ...convo, messages: [...convo.messages, ...newMessages], ipAddress: data.ipAddress || convo.ipAddress });
           }
           return newConvos;
         });
@@ -205,6 +208,9 @@ export default function WorkbenchPage() {
             const newConvos = new Map(prev);
             let convo = newConvos.get(msg.conversationId);
             if (convo) {
+                const messageExists = convo.messages.some(m => m.id === msg.id);
+                if (messageExists) return newConvos; // Don't add duplicate message
+                
                 const newMessages = [...convo.messages, msg];
                 const isSelected = msg.conversationId === selectedConversationId;
                 const unread = !isSelected ? (convo.unread || 0) + 1 : convo.unread;
