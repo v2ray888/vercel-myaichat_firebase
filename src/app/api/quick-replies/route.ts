@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/db';
-import { quickReplies as quickRepliesTable } from '@/lib/schema';
+import { quickReplies } from '@/lib/schema';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -19,8 +19,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const replies = await db.query.quickReplies.findMany({
-      where: eq(quickRepliesTable.userId, session.userId),
-      orderBy: (quickReplies, { desc }) => [desc(quickReplies.createdAt)],
+      where: eq(quickReplies.userId, session.userId),
+      orderBy: (repliesTable, { desc }) => [desc(repliesTable.createdAt)],
     });
     return NextResponse.json(replies);
   } catch (error) {
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     const { title, content } = validation.data;
 
-    const newReply = await db.insert(quickRepliesTable).values({
+    const newReply = await db.insert(quickReplies).values({
       userId: session.userId,
       title,
       content,
@@ -77,13 +77,13 @@ export async function PUT(req: NextRequest) {
 
     const { title, content } = validation.data;
 
-    const updatedReply = await db.update(quickRepliesTable)
+    const updatedReply = await db.update(quickReplies)
       .set({
         title,
         content,
         updatedAt: new Date(),
       })
-      .where(and(eq(quickRepliesTable.id, id), eq(quickRepliesTable.userId, session.userId)))
+      .where(and(eq(quickReplies.id, id), eq(quickReplies.userId, session.userId)))
       .returning();
 
     if (updatedReply.length === 0) {
@@ -112,8 +112,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
-        const deletedReply = await db.delete(quickRepliesTable)
-            .where(and(eq(quickRepliesTable.id, id), eq(quickRepliesTable.userId, session.userId)))
+        const deletedReply = await db.delete(quickReplies)
+            .where(and(eq(quickReplies.id, id), eq(quickReplies.userId, session.userId)))
             .returning();
         
         if (deletedReply.length === 0) {
