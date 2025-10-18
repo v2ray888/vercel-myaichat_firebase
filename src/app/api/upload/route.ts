@@ -1,39 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { put } from '@vercel/blob';
+import { NextResponse } from 'next/server';
 
-export async function POST(req: NextRequest) {
-  const apiKey = process.env.NEXT_PUBLIC_IMGBB_API_KEY;
+export async function POST(request: Request): Promise<NextResponse> {
+  const { searchParams } = new URL(request.url);
+  const filename = searchParams.get('filename');
 
-  if (!apiKey) {
-    return NextResponse.json({ error: 'Image hosting is not configured.' }, { status: 500 });
+  if (!filename || !request.body) {
+    return NextResponse.json({ error: 'No filename or image body provided.' }, { status: 400 });
   }
 
-  try {
-    const formData = await req.formData();
-    const image = formData.get('image') as File | null;
+  // ⚠️ The below code is for App Router Route Handlers only
+  const blob = await put(filename, request.body, {
+    access: 'public',
+  });
 
-    if (!image) {
-      return NextResponse.json({ error: 'No image file provided.' }, { status: 400 });
-    }
-    
-    const uploadFormData = new FormData();
-    uploadFormData.append('image', image);
+  // Here's the returned object from Vercel Blob:
+  // {
+  //   url: 'https://pfhdkimscj5vrp4i.public.blob.vercel-storage.com/foo-DsB5V2yX2gJBEB1k3a3pT8wBGA9bfa.txt',
+  //   pathname: 'foo.txt',
+  //   contentType: 'text/plain',
+  //   contentDisposition: 'attachment; filename="foo.txt"'
+  // }
 
-    const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
-      method: 'POST',
-      body: uploadFormData,
-    });
-
-    const result = await response.json();
-
-    if (!response.ok || !result.data || !result.data.url) {
-      console.error('ImgBB upload failed:', result);
-      return NextResponse.json({ error: 'Failed to upload image.', details: result.error?.message || 'Unknown error' }, { status: 500 });
-    }
-
-    return NextResponse.json({ imageUrl: result.data.url });
-
-  } catch (error) {
-    console.error('Image upload error:', error);
-    return NextResponse.json({ error: 'An unexpected error occurred during image upload.' }, { status: 500 });
-  }
+  return NextResponse.json(blob);
 }

@@ -249,20 +249,17 @@ function ChatWidgetContent() {
 
         setIsUploading(true);
 
-        const formData = new FormData();
-        formData.append('image', file);
-        
         try {
-            const response = await fetch('/api/upload', {
+            const response = await fetch(`/api/upload?filename=${file.name}`, {
                 method: 'POST',
-                body: formData,
+                body: file,
             });
 
             if (!response.ok) {
                 throw new Error('图片上传失败');
             }
 
-            const { imageUrl } = await response.json();
+            const { url: imageUrl } = await response.json();
             await sendMessageToServer(null, imageUrl);
 
         } catch (error: any) {

@@ -278,21 +278,18 @@ export default function WorkbenchPage() {
     if (!file || !selectedConversationId) return;
 
     setIsUploading(true);
-
-    const formData = new FormData();
-    formData.append('image', file);
-
+    
     try {
-      const response = await fetch('/api/upload', {
+      const response = await fetch(`/api/upload?filename=${file.name}`, {
         method: 'POST',
-        body: formData,
+        body: file,
       });
 
       if (!response.ok) {
         throw new Error('Image upload failed');
       }
 
-      const { imageUrl } = await response.json();
+      const { url: imageUrl } = await response.json();
       await sendMessageToServer(null, imageUrl);
 
     } catch (error) {
