@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare, Zap } from "lucide-react"
+import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare, Zap, Loader2 } from "lucide-react"
+import Image from "next/image"
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Card, CardContent } from "@/components/ui/card"
 import Pusher from 'pusher-js';
@@ -28,10 +29,11 @@ import {
 
 type Message = {
   id: string;
-  text: string;
+  text: string | null;
   sender: 'agent' | 'customer' | 'user'; // user is for local optimistic updates
   timestamp: string;
   conversationId: string;
+  metadata?: { imageUrl?: string };
 };
 
 type Conversation = {
@@ -45,8 +47,9 @@ type Conversation = {
 
 // Represents the latest message for display in the conversation list
 type LatestMessage = {
-  text: string;
+  text: string | null;
   timestamp: string;
+  metadata?: { imageUrl?: string };
 } | null;
 
 type QuickReply = {
@@ -64,6 +67,7 @@ export default function WorkbenchPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { session, isLoading: isSessionLoading } = useSession();
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   
   const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
   
@@ -85,7 +89,7 @@ export default function WorkbenchPage() {
         });
         if(data.messages.length > 0) {
             const lastMsg = data.messages[data.messages.length - 1];
-            setLatestMessages(prev => new Map(prev).set(convId, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
+            setLatestMessages(prev => new Map(prev).set(convId, { text: lastMsg.text, timestamp: lastMsg.timestamp, metadata: lastMsg.metadata }));
         }
       }
     } catch (error) {
@@ -129,7 +133,7 @@ export default function WorkbenchPage() {
                     .then(history => {
                       if (history.messages && history.messages.length > 0) {
                         const lastMsg = history.messages[history.messages.length - 1];
-                        setLatestMessages(prev => new Map(prev).set(c.id, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
+                        setLatestMessages(prev => new Map(prev).set(c.id, { text: lastMsg.text, timestamp: lastMsg.timestamp, metadata: lastMsg.metadata }));
                       }
                     });
                 });
@@ -172,7 +176,7 @@ export default function WorkbenchPage() {
       setConversations(prev => new Map(prev).set(data.id, { ...data, isActive: true, unread: 1, messages: data.messages || [] }));
       if(data.messages.length > 0) {
         const lastMsg = data.messages[data.messages.length - 1];
-        setLatestMessages(prev => new Map(prev).set(data.id, { text: lastMsg.text, timestamp: lastMsg.timestamp }));
+        setLatestMessages(prev => new Map(prev).set(data.id, { text: lastMsg.text, timestamp: lastMsg.timestamp, metadata: lastMsg.metadata }));
       }
     });
 
@@ -195,7 +199,7 @@ export default function WorkbenchPage() {
             }
             return newConvos;
           });
-          setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp }));
+          setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp, metadata: msg.metadata }));
         });
         conversationChannels.set(convId, channel);
     }
@@ -213,15 +217,17 @@ export default function WorkbenchPage() {
   }, [selectedConversation?.messages]);
 
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || !selectedConversationId) return;
+  const sendMessageToServer = async (text: string | null, imageUrl?: string) => {
+    if ((!text || !text.trim()) && !imageUrl) return;
+    if (!selectedConversationId) return;
 
-    const optimisticMessage: Message = {
+     const optimisticMessage: Message = {
       id: crypto.randomUUID(),
-      text: inputValue,
+      text: text,
       sender: 'agent',
       timestamp: new Date().toISOString(),
       conversationId: selectedConversationId,
+      metadata: imageUrl ? { imageUrl } : undefined,
     };
 
     setConversations(prev => {
@@ -232,21 +238,26 @@ export default function WorkbenchPage() {
       }
       return newConvos;
     });
-     setLatestMessages(prev => new Map(prev).set(selectedConversationId, { text: optimisticMessage.text, timestamp: optimisticMessage.timestamp }));
-    setInputValue('');
+
+    setLatestMessages(prev => new Map(prev).set(selectedConversationId, { text: text || '📷 图片', timestamp: optimisticMessage.timestamp, metadata: optimisticMessage.metadata }));
+    if (!imageUrl) {
+        setInputValue('');
+    }
 
     try {
       await fetch('/api/stream-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: inputValue,
+          message: text,
+          imageUrl: imageUrl,
           conversationId: selectedConversationId,
           role: 'agent',
         }),
       });
     } catch (error) {
       console.error("Failed to send message:", error);
+      // Revert optimistic update on failure
       setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(selectedConversationId);
@@ -258,20 +269,50 @@ export default function WorkbenchPage() {
     }
   };
 
+  const handleSendMessage = () => {
+    sendMessageToServer(inputValue);
+  };
+  
+  const onFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedConversationId) return;
+
+    setIsUploading(true);
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Image upload failed');
+      }
+
+      const { imageUrl } = await response.json();
+      await sendMessageToServer(null, imageUrl);
+
+    } catch (error) {
+      console.error("Failed to upload and send image:", error);
+      // Optionally show an error message to the user
+    } finally {
+      setIsUploading(false);
+       // Reset file input
+      if(fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
   const handleQuickReplySelect = (content: string) => {
     setInputValue(prev => prev + content);
   }
 
-  const handleImageUpload = () => {
+  const handleImageUploadClick = () => {
     fileInputRef.current?.click();
-  };
-
-  const onFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    // TODO: Implement actual file upload logic
-    console.log("Selected file:", file.name);
-    setInputValue(`[文件: ${file.name}]`);
   };
 
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
@@ -299,6 +340,8 @@ export default function WorkbenchPage() {
           )}
           {conversationArray.map((convo) => {
             const latestMessage = latestMessages.get(convo.id);
+            const displayMessage = latestMessage?.metadata?.imageUrl ? '📷 图片' : latestMessage?.text;
+
             return (
               <div
                 key={convo.id}
@@ -321,7 +364,7 @@ export default function WorkbenchPage() {
                     {latestMessage && <span className="text-xs text-muted-foreground">{new Date(latestMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
                   </div>
                   <div className="flex justify-between items-start">
-                    <p className="text-sm text-muted-foreground truncate">{latestMessage?.text || '...新会话...'}</p>
+                    <p className="text-sm text-muted-foreground truncate">{displayMessage || '...新会话...'}</p>
                     {convo.unread > 0 && (
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
                         {convo.unread}
@@ -361,10 +404,15 @@ export default function WorkbenchPage() {
                     </Avatar>
                   )}
                   <div className={cn(
-                      "max-w-[70%] rounded-lg px-4 py-2",
+                      "max-w-[70%] rounded-lg",
+                       msg.metadata?.imageUrl ? "p-0 bg-transparent" : "px-4 py-2",
                       msg.sender === 'agent' ? 'bg-primary text-primary-foreground rounded-br-none' : 'bg-muted text-card-foreground rounded-bl-none'
                   )}>
-                    <p>{msg.text}</p>
+                     {msg.metadata?.imageUrl ? (
+                        <Image src={msg.metadata.imageUrl} alt="用户上传的图片" width={200} height={200} className="rounded-lg object-cover" />
+                      ) : (
+                        <p>{msg.text}</p>
+                      )}
                   </div>
                   {msg.sender === 'agent' && (
                     <Avatar className="h-8 w-8">
@@ -390,13 +438,15 @@ export default function WorkbenchPage() {
                             }
                         }}
                         className="w-full border-0 focus-visible:ring-0 resize-none bg-transparent"
-                        disabled={!selectedConversation.isActive}
+                        disabled={!selectedConversation.isActive || isUploading}
                     />
                     <div className="flex items-center justify-between mt-2">
                         <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Smile className="h-5 w-5 text-muted-foreground" /></Button>
                             <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
-                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive} onClick={handleImageUpload}><ImageIcon className="h-5 w-5 text-muted-foreground" /></Button>
+                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive || isUploading} onClick={handleImageUploadClick}>
+                               {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
+                            </Button>
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
                             <Popover>
                                 <PopoverTrigger asChild>
@@ -428,7 +478,7 @@ export default function WorkbenchPage() {
                                 </PopoverContent>
                             </Popover>
                         </div>
-                        <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive}>
+                        <Button onClick={handleSendMessage} disabled={!inputValue.trim() || !selectedConversation.isActive || isUploading}>
                             发送回复 <Send className="ml-2 h-4 w-4" />
                         </Button>
                     </div>

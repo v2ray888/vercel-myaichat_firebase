@@ -36,10 +36,10 @@ export const conversations = pgTable('conversations', {
 export const messages = pgTable('messages', {
     id: uuid('id').primaryKey().defaultRandom(),
     conversationId: uuid('conversation_id').references(() => conversations.id).notNull(),
-    text: text('text').notNull(),
+    text: text('text'),
     sender: varchar('sender', { length: 50 }).notNull(), // 'agent' or 'customer'
     timestamp: timestamp('timestamp').defaultNow().notNull(),
-    metadata: jsonb('metadata'), // For image URLs etc.
+    metadata: jsonb('metadata').$type<{ imageUrl?: string }>(),
 });
 
 export const quickReplies = pgTable('quick_replies', {

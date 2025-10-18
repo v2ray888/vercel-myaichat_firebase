@@ -14,10 +14,6 @@ const pusher = new Pusher({
   useTLS: true
 });
 
-// This is a temporary solution to assign all chats to a single admin.
-// In a real app, you would have a more dynamic way to assign agents.
-const ADMIN_EMAIL = 'v2rayn@outlook.com';
-
 // GET a conversation's history
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -51,11 +47,13 @@ export async function GET(req: NextRequest) {
 // POST a new message
 export async function POST(req: NextRequest) {
   try {
-    const { message, conversationId, role, senderName, appId } = await req.json();
+    const { message, conversationId, role, senderName, appId, imageUrl } = await req.json();
 
-
-    if (!message || !role) {
-      return NextResponse.json({ error: 'Missing message or role' }, { status: 400 });
+    if ((!message || !message.trim()) && !imageUrl) {
+      return NextResponse.json({ error: 'Missing message or image' }, { status: 400 });
+    }
+     if (!role) {
+      return NextResponse.json({ error: 'Missing role' }, { status: 400 });
     }
 
     let currentConversationId = conversationId;
@@ -84,11 +82,20 @@ export async function POST(req: NextRequest) {
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, currentConversationId));
 
-    const insertedMessages = await db.insert(messagesTable).values({
+    const messagePayload: any = {
         conversationId: currentConversationId,
-        text: message,
         sender: role,
-    }).returning();
+    };
+
+    if (imageUrl) {
+        messagePayload.metadata = { imageUrl };
+        // Use a placeholder for text if there's an image, or leave it null
+        messagePayload.text = message || null; 
+    } else {
+        messagePayload.text = message;
+    }
+
+    const insertedMessages = await db.insert(messagesTable).values(messagePayload).returning();
 
     const newMessage = insertedMessages[0];
     

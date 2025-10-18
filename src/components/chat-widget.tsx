@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useRef, Suspense } from 'react';
@@ -14,9 +15,10 @@ import Pusher from 'pusher-js';
 
 type Message = {
   id: string;
-  text: string;
+  text: string | null;
   sender: 'user' | 'bot' | 'agent' | 'system';
   timestamp: string;
+  metadata?: { imageUrl?: string };
 };
 
 type WidgetSettings = {
@@ -27,6 +29,7 @@ type WidgetSettings = {
     primaryColor: string;
     backgroundColor: string;
     workspaceName: string;
+    allowCustomerImageUpload: boolean;
 };
 
 // Skeleton component for the initial loading state
@@ -50,6 +53,7 @@ function ChatWidgetContent() {
     const [inputValue, setInputValue] = useState('');
     const [conversationId, setConversationId] = useState<string | null>(null);
     const [isConnecting, setIsConnecting] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
     
     const searchParams = useSearchParams();
 
@@ -186,26 +190,29 @@ function ChatWidgetContent() {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
     }, [messages, isOpen]);
-
-    const handleSendMessage = async () => {
-        if (!inputValue.trim() || !settings) return;
+    
+    const sendMessageToServer = async (text: string | null, imageUrl?: string) => {
+        if (!settings || ((!text || !text.trim()) && !imageUrl)) return;
 
         const userMessage: Message = {
             id: crypto.randomUUID(),
-            text: inputValue,
+            text: text,
             sender: 'user',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            metadata: imageUrl ? { imageUrl } : undefined,
         };
         setMessages(prev => [...prev, userMessage]);
-        const currentInputValue = inputValue;
-        setInputValue('');
+        if (!imageUrl) {
+            setInputValue('');
+        }
         
         try {
             const response = await fetch('/api/stream-chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                  message: currentInputValue, 
+                  message: text, 
+                  imageUrl: imageUrl,
                   conversationId: conversationId,
                   role: 'customer',
                   senderName: `访客`,
@@ -229,6 +236,48 @@ function ChatWidgetContent() {
                 sender: 'system',
                 timestamp: new Date().toISOString()
             }]);
+        }
+    };
+
+    const handleSendMessage = () => {
+        sendMessageToServer(inputValue);
+    };
+
+    const onFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setIsUploading(true);
+
+        const formData = new FormData();
+        formData.append('image', file);
+        
+        try {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error('图片上传失败');
+            }
+
+            const { imageUrl } = await response.json();
+            await sendMessageToServer(null, imageUrl);
+
+        } catch (error: any) {
+            console.error("图片上传和发送失败:", error);
+            setMessages((prev) => [...prev, {
+                id: crypto.randomUUID(),
+                text: `图片发送失败: ${error.message}`,
+                sender: 'system',
+                timestamp: new Date().toISOString()
+            }]);
+        } finally {
+            setIsUploading(false);
+            if(fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
         }
     };
     
@@ -304,10 +353,15 @@ function ChatWidgetContent() {
                             )}
                             {message.sender !== 'system' ? (
                                 <div className={cn(
-                                    "max-w-[75%] rounded-lg px-3 py-2 text-sm",
+                                    "max-w-[75%] rounded-lg",
+                                    message.metadata?.imageUrl ? "p-0 bg-transparent" : "px-3 py-2 text-sm",
                                     message.sender === 'user' ? 'bg-[--widget-primary-color] text-primary-foreground rounded-br-none' : 'bg-card text-foreground rounded-bl-none shadow-sm'
                                 )}>
-                                    <p>{message.text}</p>
+                                    {message.metadata?.imageUrl ? (
+                                        <Image src={message.metadata.imageUrl} alt="用户上传的图片" width={200} height={200} className="rounded-lg object-cover" />
+                                    ) : (
+                                        <p>{message.text}</p>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="text-xs text-muted-foreground text-center w-full">{message.text}</div>
@@ -325,9 +379,9 @@ function ChatWidgetContent() {
                 <CardFooter className="p-0 flex flex-col bg-card">
                     <Separator />
                     <div className="p-2 w-full flex items-center gap-2">
-                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" />
-                        <Button variant="ghost" size="icon" disabled>
-                            <Paperclip className="h-5 w-5 text-muted-foreground" />
+                        <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/*" />
+                        <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isUploading || !settings.allowCustomerImageUpload}>
+                            {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Paperclip className="h-5 w-5 text-muted-foreground" />}
                             <span className="sr-only">上传文件</span>
                         </Button>
                         <div className="relative flex-grow">
@@ -350,7 +404,7 @@ function ChatWidgetContent() {
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 bg-[--widget-primary-color] hover:bg-[--widget-primary-color]/90"
                                 disabled={!inputValue.trim() || (isConnecting && !conversationId)}
                             >
-                                {isConnecting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4" />}
+                                <Send className="h-4 w-4" />
                                 <span className="sr-only">发送</span>
                             </Button>
                         </div>
