@@ -21,7 +21,7 @@ const settingsUpdateSchema = z.object({
     allowCustomerImageUpload: z.boolean().optional(),
     allowAgentImageUpload: z.boolean().optional(),
     enableAiFeatures: z.boolean().optional(),
-    brandLogoUrl: z.string().url().optional().or(z.literal('')),
+    brandLogoUrl: z.string().url().or(z.literal('')).optional(),
     primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
     backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
     workspaceName: z.string().optional(),
@@ -142,52 +142,44 @@ export async function POST(req: Request) {
         
         const { name, email, password, ...workspaceSettings } = validation.data;
         
-        // Transaction to update both user and settings
-        const result = await db.transaction(async (tx) => {
-            // 1. Update user profile if there's data for it
-            if (name || email || password) {
-                const updateData: { name?: string; email?: string; passwordHash?: string; updatedAt: Date } = {
+        // 1. Update user profile if there's data for it
+        const userUpdateData: { name?: string; email?: string; passwordHash?: string; updatedAt?: Date } = {};
+        if (name) userUpdateData.name = name;
+        if (email) userUpdateData.email = email;
+        if (password) userUpdateData.passwordHash = await bcrypt.hash(password, 10);
+        
+        if (Object.keys(userUpdateData).length > 0) {
+            userUpdateData.updatedAt = new Date();
+            await db.update(usersTable)
+                .set(userUpdateData)
+                .where(eq(usersTable.id, session.userId!));
+        }
+
+        // 2. Update workspace settings if there's data
+        if (Object.keys(workspaceSettings).length > 0) {
+             await db.update(settingsTable)
+                .set({
+                    ...workspaceSettings,
                     updatedAt: new Date(),
-                };
-                if (name) updateData.name = name;
-                if (email) updateData.email = email;
-                if (password) {
-                    updateData.passwordHash = await bcrypt.hash(password, 10);
-                }
-                
-                await tx.update(usersTable)
-                    .set(updateData)
-                    .where(eq(usersTable.id, session.userId!));
-            }
+                })
+                .where(eq(settingsTable.userId, session.userId!));
+        }
 
-            // 2. Update workspace settings if there's data
-            if (Object.keys(workspaceSettings).length > 0) {
-                 await tx.update(settingsTable)
-                    .set({
-                        ...workspaceSettings,
-                        updatedAt: new Date(),
-                    })
-                    .where(eq(settingsTable.userId, session.userId!));
-            }
-
-            // 3. Fetch the latest state of both records to return
-            const updatedUser = await tx.query.users.findFirst({
-                where: eq(usersTable.id, session.userId!),
-                columns: { id: true, name: true, email: true },
-            });
-
-            const updatedSettings = await tx.query.settings.findFirst({
-                where: eq(settingsTable.userId, session.userId!),
-            });
-
-            if (!updatedSettings || !updatedUser) {
-                throw new Error('Could not find user or settings after update.');
-            }
-            
-            return { updatedSettings, updatedUser };
+        // 3. Fetch the latest state of both records to return a consistent response
+        const updatedUser = await db.query.users.findFirst({
+            where: eq(usersTable.id, session.userId!),
+            columns: { id: true, name: true, email: true },
         });
 
-        return NextResponse.json({ ...result.updatedSettings, ...result.updatedUser });
+        const updatedSettings = await db.query.settings.findFirst({
+            where: eq(settingsTable.userId, session.userId!),
+        });
+
+        if (!updatedSettings || !updatedUser) {
+            throw new Error('Could not find user or settings after update.');
+        }
+
+        return NextResponse.json({ ...updatedSettings, ...updatedUser });
 
     } catch (error: any) {
         console.error('Failed to update settings:', error);
