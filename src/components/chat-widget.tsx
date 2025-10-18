@@ -11,7 +11,6 @@ import { Separator } from './ui/separator';
 import { Input } from './ui/input';
 import Image from 'next/image';
 import Pusher from 'pusher-js';
-import { useSession } from '@/hooks/use-session';
 
 type Message = {
   id: string;
@@ -42,9 +41,10 @@ const WidgetSkeleton = () => (
 );
 
 
-function ChatWidget() {
+function ChatWidgetContent() {
     const [settings, setSettings] = useState<WidgetSettings | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [appId, setAppId] = useState<string | null>(null);
     const [isOpen, setIsOpen] = useState(false); 
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputValue, setInputValue] = useState('');
@@ -52,36 +52,37 @@ function ChatWidget() {
     const [isConnecting, setIsConnecting] = useState(false);
     
     const searchParams = useSearchParams();
-    const { session, isLoading: isSessionLoading } = useSession();
 
     useEffect(() => {
-        const fetchSettings = async () => {
-            let appId: string | null = null;
+        const fetchSettingsAndAppId = async () => {
+            setIsLoading(true);
+            let foundAppId: string | null = null;
             
             // Priority 1: Get appId from URL (for iframe embedding)
-            appId = searchParams.get('appId');
+            foundAppId = searchParams.get('appId');
 
             // Priority 2: Get appId from window object (for script injection)
-            if (!appId && typeof window !== 'undefined' && (window as any).zhiliaotongSettings) {
-                appId = (window as any).zhiliaotongSettings.appId;
+            if (!foundAppId && typeof window !== 'undefined' && (window as any).zhiliaotongSettings) {
+                foundAppId = (window as any).zhiliaotongSettings.appId;
             }
 
-            // Priority 3: If in-app and logged in, fetch from API
-            if (!appId && !isSessionLoading && session) {
+            // Priority 3: If no appId yet, fetch default settings from API (for guest users on main site)
+            if (!foundAppId) {
                  try {
                     const res = await fetch('/api/settings');
                     if (res.ok) {
                         const data = await res.json();
-                        appId = data.id;
+                        foundAppId = data.id;
                     }
                 } catch (error) {
-                    console.error("In-app settings fetch failed:", error);
+                    console.error("Default settings fetch failed:", error);
                 }
             }
             
-            if (appId) {
+            if (foundAppId) {
+                setAppId(foundAppId);
                 try {
-                    const res = await fetch(`/api/settings?appId=${appId}`);
+                    const res = await fetch(`/api/settings?appId=${foundAppId}`);
                     if (res.ok) {
                         const data = await res.json();
                         setSettings(data);
@@ -101,8 +102,8 @@ function ChatWidget() {
             setIsLoading(false);
         };
 
-        fetchSettings();
-    }, [searchParams, session, isSessionLoading]);
+        fetchSettingsAndAppId();
+    }, [searchParams]);
 
 
     let pusherClient: Pusher | null = null;
@@ -236,8 +237,8 @@ function ChatWidget() {
         return <WidgetSkeleton />;
     }
 
-    // If no settings could be loaded, render nothing
-    if (!settings) {
+    // If no settings/appId could be loaded, render nothing
+    if (!settings || !appId) {
         return null;
     }
     
@@ -361,10 +362,10 @@ function ChatWidget() {
 }
 
 // Wrapper to provide Suspense boundary for useSearchParams
-export default function ChatWidgetWrapper() {
+export default function ChatWidget() {
     return (
         <Suspense>
-            <ChatWidget />
+            <ChatWidgetContent />
         </Suspense>
     )
 }

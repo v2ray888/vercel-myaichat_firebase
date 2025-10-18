@@ -28,7 +28,6 @@ export async function GET(req: NextRequest) {
         try {
             const publicSettings = await db.query.settings.findFirst({
                 columns: {
-                    // Only expose non-sensitive fields
                     id: true,
                     welcomeMessage: true,
                     autoOpenWidget: true,
@@ -53,28 +52,53 @@ export async function GET(req: NextRequest) {
 
     // Scenario 2: Authenticated request from the dashboard
     const session = await getSession();
-    if (!session?.userId) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session?.userId) {
+        try {
+            let userSettings = await db.query.settings.findFirst({
+                where: eq(settingsTable.userId, session.userId),
+            });
+
+            // If no settings exist for the user, create a default entry
+            if (!userSettings) {
+                const newSettings = await db.insert(settingsTable).values({
+                    userId: session.userId,
+                    workspaceName: session.name || '我的公司',
+                }).returning();
+                userSettings = newSettings[0];
+            }
+
+            return NextResponse.json(userSettings);
+
+        } catch (error) {
+            console.error('Failed to get user settings:', error);
+            return NextResponse.json({ error: 'Failed to retrieve settings' }, { status: 500 });
+        }
     }
 
+    // Scenario 3: Unauthenticated request (e.g., from homepage for guest user)
+    // Try to return a default/first setting available.
     try {
-        let userSettings = await db.query.settings.findFirst({
-            where: eq(settingsTable.userId, session.userId),
-        });
-
-        // If no settings exist for the user, create a default entry
-        if (!userSettings) {
-            const newSettings = await db.insert(settingsTable).values({
-                userId: session.userId,
-                workspaceName: session.name || '我的公司',
-            }).returning();
-            userSettings = newSettings[0];
+        const defaultSettings = await db.query.settings.findFirst();
+        if (defaultSettings) {
+            return NextResponse.json(defaultSettings);
+        } else {
+             // If there are absolutely no settings in the DB, return a hardcoded default
+            const fallbackSettings = {
+                id: 'default-fallback-id',
+                userId: 'default-fallback-user',
+                welcomeMessage: '您好！我是智能客服，很高兴为您服务。',
+                autoOpenWidget: true,
+                allowCustomerImageUpload: true,
+                allowAgentImageUpload: true,
+                brandLogoUrl: '',
+                primaryColor: '#3F51B5',
+                backgroundColor: '#F0F2F5',
+                workspaceName: '智聊通',
+            };
+            return NextResponse.json(fallbackSettings);
         }
-
-        return NextResponse.json(userSettings);
-
     } catch (error) {
-        console.error('Failed to get user settings:', error);
+        console.error('Failed to get default settings:', error);
         return NextResponse.json({ error: 'Failed to retrieve settings' }, { status: 500 });
     }
 }
