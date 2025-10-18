@@ -25,7 +25,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command"
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { useToast } from "@/hooks/use-toast"
