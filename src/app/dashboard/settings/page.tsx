@@ -1,8 +1,8 @@
 
 "use client"
 
-import { useEffect, useState } from "react";
-import { useForm, Controller, useFieldArray } from "react-hook-form";
+import { useEffect, useState, useRef } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button"
@@ -12,10 +12,11 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { Upload, Loader2, Bot, MessageCircle, User, PlusCircle, Trash2, Edit, Save, X } from "lucide-react"
+import { Upload, Loader2, Bot, MessageCircle, User, PlusCircle, Trash2, Edit, Save, X, Image as ImageIcon } from "lucide-react"
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import Image from 'next/image';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ const settingsSchema = z.object({
   autoOpenWidget: z.boolean(),
   allowCustomerImageUpload: z.boolean(),
   allowAgentImageUpload: z.boolean(),
+  brandLogoUrl: z.string().url().or(z.literal('')).optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "无效的颜色代码"),
   backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "无效的颜色代码"),
   workspaceName: z.string().min(1, "工作区名称不能为空"),
@@ -68,6 +70,8 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("appearance");
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
   const [isRepliesLoading, setIsRepliesLoading] = useState(true);
@@ -82,6 +86,7 @@ export default function SettingsPage() {
       autoOpenWidget: true,
       allowCustomerImageUpload: true,
       allowAgentImageUpload: true,
+      brandLogoUrl: "",
       primaryColor: "#3F51B5",
       backgroundColor: "#F0F2F5",
       workspaceName: "",
@@ -93,7 +98,7 @@ export default function SettingsPage() {
     defaultValues: { content: '' }
   });
 
-  const { reset, control, handleSubmit, watch } = form;
+  const { reset, control, handleSubmit, watch, setValue } = form;
   const watchedValues = watch();
 
   useEffect(() => {
@@ -243,6 +248,45 @@ export default function SettingsPage() {
     }
   };
 
+  const onFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+
+    try {
+      const response = await fetch(`/api/upload?filename=${file.name}`, {
+        method: 'POST',
+        body: file,
+      });
+
+      if (!response.ok) {
+        throw new Error('图片上传失败');
+      }
+
+      const { url: imageUrl } = await response.json();
+      setValue('brandLogoUrl', imageUrl, { shouldDirty: true });
+      toast({
+        title: '上传成功',
+        description: '您的品牌Logo已更新。请记得保存更改。'
+      });
+
+    } catch (error: any) {
+      console.error("Failed to upload and send image:", error);
+      toast({
+        variant: "destructive",
+        title: "上传失败",
+        description: error.message || '无法上传您的图片，请稍后再试'
+      });
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if(fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
   const openReplyModal = (reply: QuickReply | null = null) => {
     setEditingReply(reply);
     quickReplyForm.reset(reply || { content: '' });
@@ -296,7 +340,7 @@ export default function SettingsPage() {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold font-headline">设置</h1>
-        <Button type="submit" disabled={isSaving}>
+        <Button type="submit" disabled={isSaving || isUploading}>
           {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           保存更改
         </Button>
@@ -321,11 +365,19 @@ export default function SettingsPage() {
                         <div className="space-y-2">
                             <Label>品牌标识</Label>
                             <div className="flex items-center gap-4">
-                                <div className="w-24 h-24 rounded-md border border-dashed flex items-center justify-center bg-muted">
-                                    <Upload className="h-6 w-6 text-muted-foreground" />
+                                <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="image/png, image/jpeg, image/gif" />
+                                <div className="w-24 h-24 rounded-md border border-dashed flex items-center justify-center bg-muted relative">
+                                    {watchedValues.brandLogoUrl ? (
+                                        <Image src={watchedValues.brandLogoUrl} alt="品牌Logo预览" fill className="object-contain p-2" />
+                                    ) : (
+                                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                                    )}
                                 </div>
                                 <div>
-                                    <Button type="button" variant="outline">上传图片</Button>
+                                    <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                                        {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                                        上传图片
+                                    </Button>
                                     <p className="text-xs text-muted-foreground mt-2">推荐尺寸: 128x128px, PNG, JPG, GIF</p>
                                 </div>
                             </div>
@@ -368,7 +420,8 @@ export default function SettingsPage() {
                              <div className="flex-shrink-0 flex flex-row items-center justify-between p-3 text-white" style={{ backgroundColor: watchedValues.primaryColor }}>
                                 <div className="flex items-center gap-3">
                                     <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 flex items-center justify-center bg-white">
-                                        <Bot size={20} className="text-gray-600"/>
+                                        {watchedValues.brandLogoUrl ? <AvatarImage src={watchedValues.brandLogoUrl} alt="Logo" /> : <Bot size={20} className="text-gray-600"/>}
+                                        <AvatarFallback><Bot size={20} className="text-gray-600"/></AvatarFallback>
                                     </Avatar>
                                     <div>
                                         <p className="font-semibold text-base">{watchedValues.workspaceName || '智聊通客服'}</p>

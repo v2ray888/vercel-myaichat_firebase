@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { MessageCircle, X, Send, Bot, User, Paperclip, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Paperclip, Loader2, Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -315,15 +315,10 @@ function ChatWidgetContent() {
             <Card className="w-full max-w-sm h-[60vh] md:h-[70vh] max-h-[700px] rounded-lg shadow-2xl flex flex-col overflow-hidden">
                 <CardHeader className="flex flex-row items-center justify-between p-3 bg-[--widget-primary-color] text-primary-foreground">
                     <div className="flex items-center gap-3">
-                        {settings.brandLogoUrl ? (
-                            <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 bg-white">
-                                <Image src={settings.brandLogoUrl} alt="品牌标识" width={36} height={36} className="object-contain" />
-                            </Avatar>
-                        ) : (
-                             <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 flex items-center justify-center bg-white">
-                                <Bot size={20} className="text-gray-600"/>
-                            </Avatar>
-                        )}
+                        <Avatar className="h-9 w-9 border-2 border-primary-foreground/50 flex items-center justify-center bg-white">
+                           {settings.brandLogoUrl ? <AvatarImage src={settings.brandLogoUrl} alt="Logo" /> : <Bot size={20} className="text-gray-600"/>}
+                           <AvatarFallback><Bot size={20} className="text-gray-600"/></AvatarFallback>
+                        </Avatar>
                         <div>
                             <p className="font-semibold text-base">{settings.workspaceName || '智聊通客服'}</p>
                             <p className="text-xs text-primary-foreground/80">
