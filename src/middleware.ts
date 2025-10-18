@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session';
+import { decrypt } from '@/lib/session';
+import { cookies } from 'next/headers';
 
 const PROTECTED_ROUTES = ['/dashboard'];
 const PUBLIC_ROUTES = ['/login', '/signup', '/'];
 
+async function getSessionFromCookie() {
+  const cookie = cookies().get('session')?.value;
+  return await decrypt(cookie);
+}
+
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
-  const session = await getSession();
+  const session = await getSessionFromCookie();
 
   const isProtectedRoute = PROTECTED_ROUTES.some((route) => pathname.startsWith(route));
-  const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
-
+  
   if (isProtectedRoute && !session) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
@@ -23,5 +28,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|widget.js).*)'],
 };
