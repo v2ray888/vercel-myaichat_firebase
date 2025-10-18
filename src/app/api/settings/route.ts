@@ -144,7 +144,6 @@ export async function POST(req: Request) {
         
         // Transaction to update both user and settings
         const result = await db.transaction(async (tx) => {
-            let updatedUser;
             // 1. Update user profile if there's data for it
             if (name || email || password) {
                 const updateData: { name?: string; email?: string; passwordHash?: string; updatedAt: Date } = {
@@ -156,43 +155,33 @@ export async function POST(req: Request) {
                     updateData.passwordHash = await bcrypt.hash(password, 10);
                 }
                 
-                const res = await tx.update(usersTable)
+                await tx.update(usersTable)
                     .set(updateData)
-                    .where(eq(usersTable.id, session.userId!))
-                    .returning({
-                        id: usersTable.id,
-                        name: usersTable.name,
-                        email: usersTable.email,
-                    });
-                updatedUser = res[0];
-            } else {
-                updatedUser = await tx.query.users.findFirst({
-                    where: eq(usersTable.id, session.userId!),
-                    columns: { id: true, name: true, email: true },
-                });
+                    .where(eq(usersTable.id, session.userId!));
             }
 
-            // 2. Update workspace settings
-            let updatedSettings;
+            // 2. Update workspace settings if there's data
             if (Object.keys(workspaceSettings).length > 0) {
-                 const res = await tx.update(settingsTable)
+                 await tx.update(settingsTable)
                     .set({
                         ...workspaceSettings,
                         updatedAt: new Date(),
                     })
-                    .where(eq(settingsTable.userId, session.userId!))
-                    .returning();
-                 updatedSettings = res[0];
-            } else {
-                updatedSettings = await tx.query.settings.findFirst({
-                    where: eq(settingsTable.userId, session.userId!),
-                });
+                    .where(eq(settingsTable.userId, session.userId!));
             }
-           
 
-            if (!updatedSettings) {
-                // This should ideally not happen for a logged-in user if GET logic is correct
-                throw new Error('Settings not found for user');
+            // 3. Fetch the latest state of both records to return
+            const updatedUser = await tx.query.users.findFirst({
+                where: eq(usersTable.id, session.userId!),
+                columns: { id: true, name: true, email: true },
+            });
+
+            const updatedSettings = await tx.query.settings.findFirst({
+                where: eq(settingsTable.userId, session.userId!),
+            });
+
+            if (!updatedSettings || !updatedUser) {
+                throw new Error('Could not find user or settings after update.');
             }
             
             return { updatedSettings, updatedUser };
