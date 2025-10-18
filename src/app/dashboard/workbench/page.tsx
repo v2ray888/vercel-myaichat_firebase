@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare, Zap, Loader2 } from "lucide-react"
+import { Archive, Image as ImageIcon, Paperclip, Search, Send, Smile, User, CircleDot, MessageSquare, Zap, Loader2, Sparkles } from "lucide-react"
 import Image from "next/image"
 import { PlaceHolderImages } from "@/lib/placeholder-images"
 import { Card, CardContent } from "@/components/ui/card"
@@ -24,8 +24,10 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command"
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { useToast } from "@/hooks/use-toast"
 
 type Message = {
   id: string;
@@ -58,6 +60,7 @@ type QuickReply = {
 };
 
 export default function WorkbenchPage() {
+  const { toast } = useToast();
   const [conversations, setConversations] = useState<Map<string, Conversation>>(new Map());
   const [latestMessages, setLatestMessages] = useState<Map<string, LatestMessage>>(new Map());
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -70,6 +73,9 @@ export default function WorkbenchPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
+
   const selectedConversation = selectedConversationId ? conversations.get(selectedConversationId) : null;
   
   const fetchConversationHistory = async (convId: string) => {
@@ -100,6 +106,7 @@ export default function WorkbenchPage() {
 
   const handleSelectConversation = useCallback(async (id: string) => {
     setSelectedConversationId(id);
+    setAiSuggestion(null); // Reset AI suggestion when changing conversation
     
     setConversations(prev => {
         const newConvos = new Map(prev);
@@ -361,6 +368,45 @@ export default function WorkbenchPage() {
     fileInputRef.current?.click();
   };
 
+  const handleGenerateAiSuggestion = async () => {
+    if (!selectedConversation) return;
+
+    const lastCustomerMessage = [...selectedConversation.messages].reverse().find(m => m.sender === 'customer');
+    if (!lastCustomerMessage || !lastCustomerMessage.text) {
+        toast({
+            variant: "destructive",
+            title: "无法生成建议",
+            description: "对话中没有找到客户的最新消息。",
+        });
+        return;
+    }
+
+    setIsGeneratingSuggestion(true);
+    setAiSuggestion(null);
+    try {
+        const response = await fetch('/api/ai/generate-quick-reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customerMessage: lastCustomerMessage.text }),
+        });
+
+        if (!response.ok) throw new Error('AI建议生成失败');
+
+        const { suggestion } = await response.json();
+        setAiSuggestion(suggestion);
+    } catch (error) {
+        console.error(error);
+        toast({
+            variant: "destructive",
+            title: "AI建议生成失败",
+            description: "无法连接到AI服务，请稍后再试。",
+        });
+    } finally {
+        setIsGeneratingSuggestion(false);
+    }
+  };
+
+
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
     if (a.unread > 0 && b.unread === 0) return -1;
     if (b.unread > 0 && a.unread === 0) return 1;
@@ -510,7 +556,7 @@ export default function WorkbenchPage() {
                                {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
                             </Button>
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
-                            <Popover>
+                            <Popover onOpenChange={() => setAiSuggestion(null)}>
                                 <PopoverTrigger asChild>
                                     <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
                                         <Zap className="h-5 w-5 text-muted-foreground" />
@@ -520,8 +566,33 @@ export default function WorkbenchPage() {
                                     <Command>
                                         <CommandInput placeholder="搜索快捷回复..." />
                                         <CommandList>
-                                            <CommandEmpty>没有找到快捷回复。</CommandEmpty>
-                                            <CommandGroup>
+                                            <CommandGroup heading="AI建议">
+                                                <CommandItem
+                                                    onSelect={handleGenerateAiSuggestion}
+                                                    className="cursor-pointer"
+                                                    disabled={isGeneratingSuggestion}
+                                                >
+                                                    {isGeneratingSuggestion ? (
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <Sparkles className="mr-2 h-4 w-4 text-yellow-500" />
+                                                    )}
+                                                    <span>生成回复建议</span>
+                                                </CommandItem>
+                                                {aiSuggestion && (
+                                                    <CommandItem
+                                                        onSelect={() => handleQuickReplySend(aiSuggestion)}
+                                                        className="cursor-pointer text-blue-600 whitespace-normal h-auto"
+                                                    >
+                                                        {aiSuggestion}
+                                                    </CommandItem>
+                                                )}
+                                            </CommandGroup>
+                                            <CommandSeparator />
+                                            <CommandGroup heading="手动回复">
+                                                {quickReplies.length === 0 && !isGeneratingSuggestion && !aiSuggestion && (
+                                                     <CommandEmpty>没有找到快捷回复。</CommandEmpty>
+                                                )}
                                                 {quickReplies.map((reply) => (
                                                 <CommandItem
                                                     key={reply.id}
