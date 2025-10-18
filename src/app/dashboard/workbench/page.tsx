@@ -192,20 +192,21 @@ export default function WorkbenchPage() {
         const channelName = `private-conversation-${convId}`;
         const channel = pusher.subscribe(channelName);
         channel.bind('new-message', (msg: Message) => {
-          
-          setConversations(prev => {
-            const newConvos = new Map(prev);
-            const convo = newConvos.get(msg.conversationId);
-            if (convo) {
-              const newMessages = [...convo.messages, msg];
-              // Increment unread count only if the message is from customer and convo is not selected
-              const isSelected = msg.conversationId === selectedConversationId;
-              const unread = !isSelected && msg.sender === 'customer' ? (convo.unread || 0) + 1 : convo.unread;
-              newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
-            }
-            return newConvos;
-          });
-          setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp, metadata: msg.metadata }));
+          // Only process messages from the customer to avoid duplication
+          if (msg.sender === 'customer') {
+            setConversations(prev => {
+              const newConvos = new Map(prev);
+              const convo = newConvos.get(msg.conversationId);
+              if (convo) {
+                const newMessages = [...convo.messages, msg];
+                const isSelected = msg.conversationId === selectedConversationId;
+                const unread = !isSelected ? (convo.unread || 0) + 1 : convo.unread;
+                newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
+              }
+              return newConvos;
+            });
+            setLatestMessages(prev => new Map(prev).set(msg.conversationId, { text: msg.text, timestamp: msg.timestamp, metadata: msg.metadata }));
+          }
         });
         conversationChannels.set(convId, channel);
     }
