@@ -8,7 +8,6 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { googleAI } from '@genkit-ai/google-genai';
 import { z } from 'genkit';
 
 export const GenerateQuickReplyInputSchema = z.object({
@@ -27,7 +26,6 @@ export async function generateQuickReply(input: GenerateQuickReplyInput): Promis
 
 const prompt = ai.definePrompt({
   name: 'generateQuickReplyPrompt',
-  model: googleAI.model('gemini-1.5-flash-latest'),
   input: { schema: GenerateQuickReplyInputSchema },
   output: { schema: GenerateQuickReplyOutputSchema },
   prompt: `你是一个专业的在线客服。请根据客户的以下问题，为客服人员生成一个简洁、专业且友好的回复建议。

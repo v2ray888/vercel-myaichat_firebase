@@ -8,6 +8,7 @@ import {
   LogOut,
   MessageSquare,
   Settings,
+  Users,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -59,6 +60,7 @@ export default function DashboardLayout({
   const navItems = [
     { href: "/dashboard", icon: <Home />, label: "仪表盘" },
     { href: "/dashboard/workbench", icon: <MessageSquare />, label: "工作台" },
+    { href: "/dashboard/users", icon: <Users />, label: "用户管理" },
     { href: "/dashboard/code", icon: <Code2 />, label: "代码嵌入" },
     { href: "/dashboard/settings", icon: <Settings />, label: "设置" },
   ]
