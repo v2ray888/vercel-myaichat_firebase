@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const result = allConversations.map(c => ({
         id: c.id,
         name: c.customerName,
-        ipAddress: c.ipAddress,
+        ipAddress: c.ipAddress, // Ensure ipAddress is included
         messages: [], 
         isActive: c.isActive,
         unread: 0, 

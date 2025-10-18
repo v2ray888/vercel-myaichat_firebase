@@ -182,6 +182,8 @@ export default function WorkbenchPage() {
     });
 
     agentChannel.bind('new-message', (msg: Message & { conversationName?: string, conversationIp?: string }) => {
+        if (msg.sender === 'agent') return; // Ignore messages from other agents or self
+
         setConversations(prev => {
             const newConvos = new Map(prev);
             const convo = newConvos.get(msg.conversationId);
