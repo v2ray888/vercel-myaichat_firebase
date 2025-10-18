@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   try {
     const replies = await db.query.quickReplies.findMany({
       where: eq(quickReplies.userId, session.userId),
-      orderBy: (repliesTable, { desc }) => [desc(repliesTable.createdAt)],
+      orderBy: (replies, { desc }) => [desc(replies.createdAt)],
     });
     return NextResponse.json(replies);
   } catch (error) {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       userId: session.userId,
       title,
       content,
-    }).returning();
+    }).returning({ id: quickReplies.id, title: quickReplies.title, content: quickReplies.content });
 
     return NextResponse.json(newReply[0], { status: 201 });
   } catch (error) {
