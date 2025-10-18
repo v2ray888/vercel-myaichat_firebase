@@ -40,6 +40,7 @@ import {
 
 const settingsSchema = z.object({
   welcomeMessage: z.string().min(1, "欢迎消息不能为空"),
+  offlineMessage: z.string().min(1, "离线消息不能为空"),
   autoOpenWidget: z.boolean(),
   allowCustomerImageUpload: z.boolean(),
   allowAgentImageUpload: z.boolean(),
@@ -77,6 +78,7 @@ export default function SettingsPage() {
     resolver: zodResolver(settingsSchema),
     defaultValues: {
       welcomeMessage: "您好！我是智能客服，很高兴为您服务。",
+      offlineMessage: "我们当前不在线，但您可以留言，我们会尽快回复您。",
       autoOpenWidget: true,
       allowCustomerImageUpload: true,
       allowAgentImageUpload: true,
@@ -422,6 +424,17 @@ export default function SettingsPage() {
                     <Label htmlFor="welcome-message">欢迎消息</Label>
                     <Textarea id="welcome-message" placeholder="您好！有什么可以帮助您的吗？" {...field} />
                      {form.formState.errors.welcomeMessage && <p className="text-sm text-destructive">{form.formState.errors.welcomeMessage.message}</p>}
+                  </div>
+                )}
+              />
+              <Controller
+                name="offlineMessage"
+                control={control}
+                render={({ field }) => (
+                  <div className="space-y-2">
+                    <Label htmlFor="offline-message">离线消息</Label>
+                    <Textarea id="offline-message" placeholder="我们当前不在线，但您可以留言，我们会尽快回复您。" {...field} />
+                     {form.formState.errors.offlineMessage && <p className="text-sm text-destructive">{form.formState.errors.offlineMessage.message}</p>}
                   </div>
                 )}
               />

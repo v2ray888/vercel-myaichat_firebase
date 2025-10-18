@@ -13,6 +13,7 @@ export const settings = pgTable('settings', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).unique().notNull(),
   welcomeMessage: text('welcome_message').default('您好！我是智能客服，很高兴为您服务。'),
+  offlineMessage: text('offline_message').default('我们当前不在线，但您可以留言，我们会尽快回复您。'),
   autoOpenWidget: boolean('auto_open_widget').default(true),
   allowCustomerImageUpload: boolean('allow_customer_image_upload').default(true),
   allowAgentImageUpload: boolean('allow_agent_image_upload').default(true),

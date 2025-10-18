@@ -25,6 +25,7 @@ type Message = {
 type WidgetSettings = {
     id: string;
     welcomeMessage: string;
+    offlineMessage: string;
     autoOpenWidget: boolean;
     brandLogoUrl: string | null;
     primaryColor: string;
@@ -326,7 +327,7 @@ function ChatWidgetContent() {
                         <div>
                             <p className="font-semibold text-base">{settings.workspaceName || '智聊通客服'}</p>
                             <p className="text-xs text-primary-foreground/80">
-                               {isConnecting ? '正在连接...' : (pusherClient?.connection.state === 'connected' ? '在线' : '已离线')}
+                               {isConnecting ? '正在连接...' : (pusherClient?.connection.state === 'connected' ? '在线' : settings.offlineMessage)}
                             </p>
                         </div>
                     </div>
@@ -367,7 +368,7 @@ function ChatWidgetContent() {
 
                             {message.sender === 'user' && (
                                 <Avatar className="h-8 w-8">
-                                    {conversationId ? <AvatarImage src={`https://picsum.photos/seed/${conversationId}/40/40`} alt="User" /> : null}
+                                    {conversationId && <AvatarImage src={`https://picsum.photos/seed/${conversationId}/40/40`} alt="User" />}
                                     <AvatarFallback><User size={18}/></AvatarFallback>
                                 </Avatar>
                             )}
@@ -422,7 +423,3 @@ export default function ChatWidget() {
         </Suspense>
     )
 }
-
-    
-
-    

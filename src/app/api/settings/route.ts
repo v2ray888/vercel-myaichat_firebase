@@ -9,6 +9,7 @@ import { z } from 'zod';
 // Zod schema for validating incoming settings data for updates
 const settingsUpdateSchema = z.object({
     welcomeMessage: z.string().optional(),
+    offlineMessage: z.string().optional(),
     autoOpenWidget: z.boolean().optional(),
     allowCustomerImageUpload: z.boolean().optional(),
     allowAgentImageUpload: z.boolean().optional(),
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
                 columns: {
                     id: true,
                     welcomeMessage: true,
+                    offlineMessage: true,
                     autoOpenWidget: true,
                     brandLogoUrl: true,
                     primaryColor: true,
@@ -89,6 +91,7 @@ export async function GET(req: NextRequest) {
                 id: 'default-fallback-id',
                 userId: 'default-fallback-user',
                 welcomeMessage: '您好！我是智能客服，很高兴为您服务。',
+                offlineMessage: '我们当前不在线，但您可以留言，我们会尽快回复您。',
                 autoOpenWidget: true,
                 allowCustomerImageUpload: true,
                 allowAgentImageUpload: true,
