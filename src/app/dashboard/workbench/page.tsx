@@ -310,8 +310,8 @@ export default function WorkbenchPage() {
     }
   };
 
-  const handleQuickReplySelect = (content: string) => {
-    setInputValue(prev => prev + content);
+  const handleQuickReplySend = (content: string) => {
+    sendMessageToServer(content);
   }
 
   const handleImageUploadClick = () => {
@@ -469,9 +469,14 @@ export default function WorkbenchPage() {
                                                 {quickReplies.map((reply) => (
                                                 <CommandItem
                                                     key={reply.id}
-                                                    onSelect={() => {
-                                                        handleQuickReplySelect(reply.content)
-                                                        // Note: Popover might need manual closing depending on library version
+                                                    onSelect={(currentValue) => {
+                                                        handleQuickReplySend(reply.content);
+                                                        // This is a workaround to prevent the popover from closing and re-opening
+                                                        // and sending the message twice.
+                                                        const popoverTrigger = document.querySelector('[aria-controls^="radix-"][aria-expanded="true"]');
+                                                        if (popoverTrigger) {
+                                                           (popoverTrigger as HTMLElement).click();
+                                                        }
                                                     }}
                                                     className="cursor-pointer"
                                                 >
@@ -503,3 +508,5 @@ export default function WorkbenchPage() {
     </div>
   )
 }
+
+    
