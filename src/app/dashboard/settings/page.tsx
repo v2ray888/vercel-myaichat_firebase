@@ -174,12 +174,17 @@ export default function SettingsPage() {
     const isEditing = !!data.id;
     const url = '/api/quick-replies';
     const method = isEditing ? 'PUT' : 'POST';
+    
+    let payload: any = { ...data };
+    if (!isEditing) {
+      delete payload.id;
+    }
 
     try {
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
