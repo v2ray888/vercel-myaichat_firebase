@@ -62,7 +62,8 @@ export async function POST(req: NextRequest) {
     let isNewConversation = false;
     
     // Get IP address from request
-    const ip = req.headers.get('x-forwarded-for') || req.ip;
+    const ip = req.ip || req.headers.get('x-forwarded-for');
+
 
     if (role === 'customer' && !currentConversationId) {
         isNewConversation = true;
