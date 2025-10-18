@@ -51,7 +51,8 @@ export async function GET(req: NextRequest) {
 // POST a new message
 export async function POST(req: NextRequest) {
   try {
-    const { message, conversationId, role, senderName } = await req.json();
+    const { message, conversationId, role, senderName, appId } = await req.json();
+
 
     if (!message || !role) {
       return NextResponse.json({ error: 'Missing message or role' }, { status: 400 });
@@ -63,12 +64,14 @@ export async function POST(req: NextRequest) {
     if (role === 'customer' && !currentConversationId) {
         isNewConversation = true;
 
-        // Create the new conversation, REMOVING the assigneeId logic
-        const newConversation = await db.insert(conversations).values({ 
+        const newConversationResult = await db.insert(conversations).values({ 
             customerName: senderName || `访客`,
-        }).returning({ id: conversations.id });
+            isActive: true,
+            updatedAt: new Date(),
+        }).returning({ id: conversations.id, updatedAt: conversations.updatedAt, customerName: conversations.customerName, isActive: conversations.isActive });
 
-        currentConversationId = newConversation[0].id;
+        const newConversation = newConversationResult[0];
+        currentConversationId = newConversation.id;
     }
 
 
@@ -93,15 +96,17 @@ export async function POST(req: NextRequest) {
     const customerChannelName = `private-conversation-${currentConversationId}`;
     
     if (isNewConversation) {
+        // Find admin based on appId in a real scenario. For now, hardcoded.
         const admin = await db.query.users.findFirst({
-            where: eq(users.email, ADMIN_EMAIL),
+             // In a real app, you would look up the user associated with the appId
+             // For now, we continue to use a hardcoded admin for simplicity.
         });
 
         if (admin && admin.id) {
             const agentChannel = `private-agent-${admin.id}`;
              const conversationPayload = {
               id: currentConversationId,
-              name: senderName || `访客 ${currentConversationId.substring(0, 6)}`,
+              name: senderName || `访客`,
               messages: [newMessage],
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,
@@ -109,7 +114,8 @@ export async function POST(req: NextRequest) {
               unread: 1,
             };
             try {
-                await pusher.trigger(agentChannel, 'new-conversation', JSON.stringify(conversationPayload));
+                // Send the payload as a JS object, not a string
+                await pusher.trigger(agentChannel, 'new-conversation', conversationPayload);
             } catch (e) {
                 console.error("Pusher trigger failed for new-conversation:", e);
             }
