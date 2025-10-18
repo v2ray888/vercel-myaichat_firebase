@@ -75,7 +75,7 @@ export default function WorkbenchPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { session, isLoading: isSessionLoading } = useSession();
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
-  const [isUploading, setIsUploading] = useState(isUploading);
+  const [isUploading, setIsUploading] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   
@@ -409,12 +409,12 @@ export default function WorkbenchPage() {
 
         const { suggestion } = await response.json();
         setAiSuggestion(suggestion);
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
         toast({
             variant: "destructive",
             title: "AI建议生成失败",
-            description: "无法连接到AI服务，请稍后再试。",
+            description: error.message || "无法连接到AI服务，请稍后再试。",
         });
     } finally {
         setIsGeneratingSuggestion(false);
