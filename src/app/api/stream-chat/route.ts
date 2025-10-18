@@ -4,6 +4,7 @@ import { conversations, messages as messagesTable, users } from '@/lib/schema';
 import { eq, asc, and } from 'drizzle-orm';
 import Pusher from 'pusher';
 import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/session';
 
 // Initialize Pusher
 const pusher = new Pusher({
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
     
     const customerChannelName = `private-conversation-${currentConversationId}`;
     
+    // For a new conversation, we trigger a specific event for agents
     if (isNewConversation) {
         const admin = await db.query.users.findFirst();
 
@@ -113,7 +115,7 @@ export async function POST(req: NextRequest) {
              const conversationPayload = {
               id: currentConversationId,
               name: senderName || `访客`,
-              ipAddress: ip, // THIS WAS THE MISSING PIECE
+              ipAddress: ip, // Explicitly include IP here
               messages: [newMessage],
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,
@@ -129,14 +131,17 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        if (role !== 'agent') {
+        // For customer messages, always notify the agent channel with updated info
+        if (role === 'customer') {
             const currentConversation = await db.query.conversations.findFirst({ where: eq(conversations.id, currentConversationId) });
             const admin = await db.query.users.findFirst(); 
             if (admin?.id) {
                 const agentChannel = `private-agent-${admin.id}`;
+                // Ensure IP is included in the new-message event payload
                 await pusher.trigger(agentChannel, 'new-message', { ...newMessage, conversationName: currentConversation?.customerName, conversationIp: currentConversation?.ipAddress });
             }
         }
+        // Always notify the customer's own channel
         await pusher.trigger(customerChannelName, 'new-message', newMessage);
 
     } catch (e) {
@@ -156,8 +161,13 @@ export async function POST(req: NextRequest) {
 
 
 export async function DELETE(req: NextRequest) {
+    const session = await getSession();
     const { searchParams } = new URL(req.url);
     const conversationId = searchParams.get('id');
+
+    if (!session?.userId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     if (!conversationId) {
         return NextResponse.json({ error: 'Conversation ID is required' }, { status: 400 });
@@ -173,12 +183,9 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
         }
         
-        // Optionally, trigger a pusher event to remove it from UI in real-time
-        const admin = await db.query.users.findFirst();
-        if (admin?.id) {
-             const agentChannel = `private-agent-${admin.id}`;
-             await pusher.trigger(agentChannel, 'conversation-archived', { conversationId });
-        }
+        // Notify the agent channel to remove it from the UI in real-time
+        const agentChannel = `private-agent-${session.userId}`;
+        await pusher.trigger(agentChannel, 'conversation-archived', { conversationId });
 
         return NextResponse.json({ success: true, conversationId });
     } catch (error: any) {

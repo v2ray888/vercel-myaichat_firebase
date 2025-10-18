@@ -83,7 +83,7 @@ export default function WorkbenchPage() {
           const newConvos = new Map(prev);
           const convo = newConvos.get(convId);
           if (convo) {
-            newConvos.set(convId, { ...convo, messages: data.messages, ipAddress: data.ipAddress });
+            newConvos.set(convId, { ...convo, messages: data.messages, ipAddress: data.ipAddress || convo.ipAddress });
           }
           return newConvos;
         });
@@ -191,7 +191,7 @@ export default function WorkbenchPage() {
                 const newMessages = [...convo.messages, msg];
                 const isSelected = msg.conversationId === selectedConversationId;
                 const unread = !isSelected ? (convo.unread || 0) + 1 : convo.unread;
-                newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
+                newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, ipAddress: msg.conversationIp || convo.ipAddress, updatedAt: new Date().toISOString() });
             } else {
                 convo = {
                   id: msg.conversationId,
@@ -295,7 +295,10 @@ export default function WorkbenchPage() {
     setSelectedConversationId(null);
     
     try {
-        await fetch(`/api/stream-chat?id=${selectedConversationId}`, { method: 'DELETE' });
+        await fetch(`/api/stream-chat?id=${selectedConversationId}`, { 
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        });
     } catch (error) {
         console.error("Failed to archive conversation:", error);
         // Revert on failure
@@ -428,6 +431,7 @@ export default function WorkbenchPage() {
               </div>
               <Button variant="outline" size="icon" onClick={handleArchiveConversation}>
                 <Archive className="h-4 w-4" />
+                <span className="sr-only">归档对话</span>
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
