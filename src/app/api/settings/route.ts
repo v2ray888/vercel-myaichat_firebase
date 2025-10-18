@@ -2,12 +2,19 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/db';
-import { settings as settingsTable } from '@/lib/schema';
+import { settings as settingsTable, users as usersTable } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import * as bcrypt from 'bcryptjs';
 
-// Zod schema for validating incoming settings data for updates
+// Combined schema for all settings, including user profile data
 const settingsUpdateSchema = z.object({
+    // User profile fields
+    name: z.string().min(2, "姓名至少需要2个字符").optional(),
+    email: z.string().email("请输入有效的邮箱地址").optional(),
+    password: z.string().min(6, "密码至少需要6个字符").optional().or(z.literal('')),
+    
+    // Workspace settings fields
     welcomeMessage: z.string().optional(),
     offlineMessage: z.string().optional(),
     autoOpenWidget: z.boolean().optional(),
@@ -62,6 +69,13 @@ export async function GET(req: NextRequest) {
             let userSettings = await db.query.settings.findFirst({
                 where: eq(settingsTable.userId, session.userId),
             });
+            const user = await db.query.users.findFirst({
+                where: eq(usersTable.id, session.userId),
+                 columns: {
+                    name: true,
+                    email: true,
+                }
+            });
 
             // If no settings exist for the user, create a default entry
             if (!userSettings) {
@@ -72,7 +86,7 @@ export async function GET(req: NextRequest) {
                 userSettings = newSettings[0];
             }
 
-            return NextResponse.json(userSettings);
+            return NextResponse.json({ ...userSettings, ...user });
 
         } catch (error) {
             console.error('Failed to get user settings:', error);
@@ -126,24 +140,57 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Invalid data', details: validation.error.flatten() }, { status: 400 });
         }
         
-        const validatedData = validation.data;
+        const { name, email, password, ...workspaceSettings } = validation.data;
+        
+        // Transaction to update both user and settings
+        const result = await db.transaction(async (tx) => {
+            let updatedUser;
+            // 1. Update user profile if there's data for it
+            if (name || email || password) {
+                const updateData: { name?: string; email?: string; passwordHash?: string; updatedAt: Date } = {
+                    updatedAt: new Date(),
+                };
+                if (name) updateData.name = name;
+                if (email) updateData.email = email;
+                if (password) {
+                    updateData.passwordHash = await bcrypt.hash(password, 10);
+                }
+                
+                const res = await tx.update(usersTable)
+                    .set(updateData)
+                    .where(eq(usersTable.id, session.userId!))
+                    .returning({
+                        id: usersTable.id,
+                        name: usersTable.name,
+                        email: usersTable.email,
+                    });
+                updatedUser = res[0];
+            }
 
-        const updatedSettings = await db.update(settingsTable)
-            .set({
-                ...validatedData,
-                updatedAt: new Date(),
-            })
-            .where(eq(settingsTable.userId, session.userId))
-            .returning();
+            // 2. Update workspace settings
+            const updatedSettings = await tx.update(settingsTable)
+                .set({
+                    ...workspaceSettings,
+                    updatedAt: new Date(),
+                })
+                .where(eq(settingsTable.userId, session.userId!))
+                .returning();
+
+            if (updatedSettings.length === 0) {
+                // This should ideally not happen for a logged-in user if GET logic is correct
+                throw new Error('Settings not found for user');
+            }
             
-        if (updatedSettings.length === 0) {
-            return NextResponse.json({ error: 'Settings not found for user' }, { status: 404 });
-        }
+            return { updatedSettings: updatedSettings[0], updatedUser };
+        });
 
-        return NextResponse.json(updatedSettings[0]);
+        return NextResponse.json({ ...result.updatedSettings, ...result.updatedUser });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Failed to update settings:', error);
+         if (error.code === '23505') { // Postgres unique violation for email
+            return NextResponse.json({ error: 'Email is already in use by another account.' }, { status: 409 });
+        }
         return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
     }
 }

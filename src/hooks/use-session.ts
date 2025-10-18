@@ -1,7 +1,7 @@
 
 "use client"
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 type Session = {
     userId: string;
@@ -12,27 +12,33 @@ type Session = {
 export function useSession() {
     const [session, setSession] = useState<Session | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [reload, setReload] = useState(0);
 
-    useEffect(() => {
-        const fetchSession = async () => {
-            try {
-                const res = await fetch('/api/auth/session');
-                if (res.ok) {
-                    const data = await res.json();
-                    setSession(data.session);
-                } else {
-                    setSession(null);
-                }
-            } catch (error) {
-                console.error("Failed to fetch session:", error);
+    const fetchSession = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const res = await fetch('/api/auth/session');
+            if (res.ok) {
+                const data = await res.json();
+                setSession(data.session);
+            } else {
                 setSession(null);
-            } finally {
-                setIsLoading(false);
             }
-        };
-
-        fetchSession();
+        } catch (error) {
+            console.error("Failed to fetch session:", error);
+            setSession(null);
+        } finally {
+            setIsLoading(false);
+        }
     }, []);
 
-    return { session, isLoading };
+    useEffect(() => {
+        fetchSession();
+    }, [fetchSession, reload]);
+
+    const forceReload = useCallback(() => {
+        setReload(prev => prev + 1);
+    }, []);
+
+    return { session, isLoading, forceReload };
 }

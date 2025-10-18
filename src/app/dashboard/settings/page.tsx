@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 const settingsSchema = z.object({
+  // Workspace settings
   welcomeMessage: z.string().min(1, "欢迎消息不能为空"),
   offlineMessage: z.string().min(1, "离线消息不能为空"),
   autoOpenWidget: z.boolean(),
@@ -51,6 +52,11 @@ const settingsSchema = z.object({
   backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "无效的颜色代码"),
   workspaceName: z.string().min(1, "工作区名称不能为空"),
   workspaceDomain: z.string().optional(),
+  
+  // User profile settings
+  name: z.string().min(2, "姓名至少需要2个字符"),
+  email: z.string().email("请输入有效的邮箱地址"),
+  password: z.string().min(6, "新密码至少需要6个字符").optional().or(z.literal('')),
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
@@ -70,7 +76,7 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState("appearance");
+  const [activeTab, setActiveTab] = useState("general");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,6 +99,9 @@ export default function SettingsPage() {
       backgroundColor: "#F0F2F5",
       workspaceName: "",
       workspaceDomain: "",
+      name: "",
+      email: "",
+      password: "",
     }
   });
   
@@ -101,7 +110,7 @@ export default function SettingsPage() {
     defaultValues: { content: '' }
   });
 
-  const { reset, control, handleSubmit, watch, setValue } = form;
+  const { reset, control, handleSubmit, watch, setValue, formState: { errors } } = form;
   const watchedValues = watch();
 
   useEffect(() => {
@@ -111,7 +120,12 @@ export default function SettingsPage() {
         const response = await fetch('/api/settings');
         if (!response.ok) throw new Error("Failed to fetch settings");
         const data = await response.json();
-        reset(data);
+        // Reset form with fetched data
+        reset({
+          ...form.getValues(), // keep defaults for fields not in response
+          ...data,
+          password: '', // always clear password field
+        });
       } catch (error) {
         console.error(error);
         toast({
@@ -128,8 +142,6 @@ export default function SettingsPage() {
       setIsRepliesLoading(true);
       try {
         const response = await fetch('/api/quick-replies');
-        // Even if the response is not ok (e.g. 500), we proceed with empty data
-        // to prevent the page from crashing.
         const data = response.ok ? await response.json() : [];
         setQuickReplies(data);
 
@@ -160,22 +172,28 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-
-      if (!response.ok) throw new Error('保存失败');
       
       const savedData = await response.json();
-      reset(savedData);
+      if (!response.ok) {
+        throw new Error(savedData.error || '保存失败');
+      }
+      
+      reset({ ...savedData, password: '' });
 
       toast({
         title: "保存成功",
         description: "您的设置已更新。",
       });
 
-    } catch (error) {
+      // Force a re-render of the layout to update session info (e.g. user name in sidebar)
+      // A bit of a hack, but effective for this case.
+      window.dispatchEvent(new Event('storage'));
+
+    } catch (error: any) {
       toast({
         variant: "destructive",
         title: "保存失败",
-        description: "无法保存您的设置，请稍后重试。",
+        description: error.message || "无法保存您的设置，请稍后重试。",
       });
     } finally {
       setIsSaving(false);
@@ -283,7 +301,6 @@ export default function SettingsPage() {
       });
     } finally {
       setIsUploading(false);
-      // Reset file input
       if(fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -317,7 +334,7 @@ export default function SettingsPage() {
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Skeleton className="h-5 w-20" />
-            <Skeleton className="h-24 w-24" />
+            <Skeleton className="h-10 w-full" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -350,12 +367,79 @@ export default function SettingsPage() {
       </div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-5 max-w-xl">
+          <TabsTrigger value="general">通用设置</TabsTrigger>
           <TabsTrigger value="appearance">小部件外观</TabsTrigger>
           <TabsTrigger value="behavior">聊天行为</TabsTrigger>
           <TabsTrigger value="quick-replies">快捷回复</TabsTrigger>
           <TabsTrigger value="ai">AI设置</TabsTrigger>
-          <TabsTrigger value="general">通用设置</TabsTrigger>
         </TabsList>
+
+         <TabsContent value="general" className="mt-6">
+            <Card>
+                <CardHeader>
+                <CardTitle>通用和个人资料</CardTitle>
+                <CardDescription>管理您的个人资料和工作区基本信息。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6 max-w-2xl">
+                    <Controller
+                        name="name"
+                        control={control}
+                        render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label htmlFor="name">姓名</Label>
+                            <Input id="name" {...field} />
+                            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                        </div>
+                        )}
+                    />
+                    <Controller
+                        name="email"
+                        control={control}
+                        render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label htmlFor="email">邮箱</Label>
+                            <Input id="email" type="email" {...field} />
+                             {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+                        </div>
+                        )}
+                    />
+                     <Controller
+                        name="password"
+                        control={control}
+                        render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label htmlFor="password">新密码</Label>
+                            <Input id="password" type="password" {...field} placeholder="留空则不修改"/>
+                             {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
+                        </div>
+                        )}
+                    />
+                    <hr className="my-6"/>
+                    <Controller
+                        name="workspaceName"
+                        control={control}
+                        render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label htmlFor="workspace-name">工作区名称</Label>
+                            <Input id="workspace-name" {...field} />
+                            {errors.workspaceName && <p className="text-sm text-destructive">{errors.workspaceName.message}</p>}
+                        </div>
+                        )}
+                    />
+                    <Controller
+                        name="workspaceDomain"
+                        control={control}
+                        render={({ field }) => (
+                        <div className="space-y-2">
+                            <Label htmlFor="workspace-domain">工作区域名 (可选)</Label>
+                            <Input id="workspace-domain" {...field} value={field.value ?? ''} placeholder="例如 mycompany.com"/>
+                             {errors.workspaceDomain && <p className="text-sm text-destructive">{errors.workspaceDomain.message}</p>}
+                        </div>
+                        )}
+                    />
+                </CardContent>
+            </Card>
+        </TabsContent>
 
         <TabsContent value="appearance" className="mt-6">
            <Card>
@@ -397,7 +481,7 @@ export default function SettingsPage() {
                                     <input type="color" {...field} className="h-10 w-12 p-1 bg-card border rounded-md cursor-pointer"/>
                                     <Input id="primary-color" {...field}  />
                                 </div>
-                                {form.formState.errors.primaryColor && <p className="text-sm text-destructive">{form.formState.errors.primaryColor.message}</p>}
+                                {errors.primaryColor && <p className="text-sm text-destructive">{errors.primaryColor.message}</p>}
                                 </div>
                             )}
                             />
@@ -411,7 +495,7 @@ export default function SettingsPage() {
                                     <input type="color" {...field} className="h-10 w-12 p-1 bg-card border rounded-md cursor-pointer"/>
                                     <Input id="background-color" {...field} />
                                 </div>
-                                {form.formState.errors.backgroundColor && <p className="text-sm text-destructive">{form.formState.errors.backgroundColor.message}</p>}
+                                {errors.backgroundColor && <p className="text-sm text-destructive">{errors.backgroundColor.message}</p>}
                                 </div>
                             )}
                             />
@@ -480,7 +564,7 @@ export default function SettingsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="welcome-message">欢迎消息</Label>
                     <Textarea id="welcome-message" placeholder="您好！有什么可以帮助您的吗？" {...field} />
-                     {form.formState.errors.welcomeMessage && <p className="text-sm text-destructive">{form.formState.errors.welcomeMessage.message}</p>}
+                     {errors.welcomeMessage && <p className="text-sm text-destructive">{errors.welcomeMessage.message}</p>}
                   </div>
                 )}
               />
@@ -491,7 +575,7 @@ export default function SettingsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="offline-message">离线消息</Label>
                     <Textarea id="offline-message" placeholder="我们当前不在线，但您可以留言，我们会尽快回复您。" {...field} />
-                     {form.formState.errors.offlineMessage && <p className="text-sm text-destructive">{form.formState.errors.offlineMessage.message}</p>}
+                     {errors.offlineMessage && <p className="text-sm text-destructive">{errors.offlineMessage.message}</p>}
                   </div>
                 )}
               />
@@ -632,37 +716,6 @@ export default function SettingsPage() {
             </Card>
         </TabsContent>
 
-        <TabsContent value="general" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>通用设置</CardTitle>
-              <CardDescription>管理您的账户和工作区基本信息。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Controller
-                name="workspaceName"
-                control={control}
-                render={({ field }) => (
-                  <div className="space-y-2">
-                    <Label htmlFor="workspace-name">工作区名称</Label>
-                    <Input id="workspace-name" {...field} />
-                     {form.formState.errors.workspaceName && <p className="text-sm text-destructive">{form.formState.errors.workspaceName.message}</p>}
-                  </div>
-                )}
-              />
-              <Controller
-                name="workspaceDomain"
-                control={control}
-                render={({ field }) => (
-                  <div className="space-y-2">
-                    <Label htmlFor="workspace-domain">工作区域名</Label>
-                    <Input id="workspace-domain" {...field} value={field.value ?? ''} />
-                  </div>
-                )}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </form>
 
@@ -703,5 +756,3 @@ export default function SettingsPage() {
     </>
   )
 }
-
-    

@@ -48,7 +48,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const userAvatar = PlaceHolderImages.find(p => p.id === 'user-avatar');
-  const { session: user, isLoading: isSessionLoading } = useSession();
+  const { session: user, isLoading: isSessionLoading, forceReload } = useSession();
 
 
   useEffect(() => {
@@ -56,6 +56,17 @@ export default function DashboardLayout({
         router.push('/login');
     }
   },[user, isSessionLoading, router])
+  
+  useEffect(() => {
+    const reloadSession = () => {
+      forceReload();
+    };
+    window.addEventListener('storage', reloadSession);
+    return () => {
+      window.removeEventListener('storage', reloadSession);
+    }
+  }, [forceReload]);
+
 
   const navItems = [
     { href: "/dashboard", icon: <Home />, label: "仪表盘" },
@@ -107,16 +118,18 @@ export default function DashboardLayout({
                         <AvatarFallback>{user?.name?.charAt(0) || '用户'}</AvatarFallback>
                     </Avatar>
                     <div className="text-sidebar-foreground group-data-[collapsible=icon]:hidden overflow-hidden">
-                       {user ? (
+                       {isSessionLoading ? (
+                           <div className="space-y-1">
+                             <Skeleton className="h-4 w-20 bg-sidebar-accent" />
+                             <Skeleton className="h-3 w-32 bg-sidebar-accent" />
+                           </div>
+                       ) : user ? (
                            <>
                              <p className="text-sm font-medium truncate">{user.name}</p>
                              <p className="text-xs text-sidebar-foreground/70 truncate">{user.email}</p>
                            </>
                        ) : (
-                           <div className="space-y-1">
-                             <Skeleton className="h-4 w-20 bg-sidebar-accent" />
-                             <Skeleton className="h-3 w-32 bg-sidebar-accent" />
-                           </div>
+                           <p>未登录</p>
                        )}
                     </div>
                 </Button>
@@ -124,7 +137,7 @@ export default function DashboardLayout({
             <DropdownMenuContent side="right" align="start">
                 <DropdownMenuLabel>我的账户</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>个人资料</DropdownMenuItem>
+                <DropdownMenuItem asChild><Link href="/dashboard/settings">个人资料</Link></DropdownMenuItem>
                 <DropdownMenuItem>账单</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>

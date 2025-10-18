@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/db';
 import { users } from '@/lib/schema';
-import { desc, eq, and } from 'drizzle-orm';
+import { desc, eq, and, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import * as bcrypt from 'bcryptjs';
 
@@ -43,20 +43,36 @@ const userUpdateSchema = z.object({
 // PUT (update) a user
 export async function PUT(req: NextRequest) {
   const session = await getSession();
-  // Simple auth check, a real app should have role-based access control
   if (!session?.userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const body = await req.json();
-    const validation = userUpdateSchema.safeParse(body);
     
-    if (!validation.success) {
-      return NextResponse.json({ error: '无效的数据', details: validation.error.flatten() }, { status: 400 });
+    // Admin editing a specific user
+    let validation;
+    let idToUpdate;
+    
+    // If an ID is passed, it's an admin editing. Otherwise, a user is editing their own profile.
+    if (body.id) {
+        validation = userUpdateSchema.safeParse(body);
+        if (!validation.success) {
+             return NextResponse.json({ error: '无效的数据', details: validation.error.flatten() }, { status: 400 });
+        }
+        idToUpdate = validation.data.id;
+    } else {
+        // User editing their own profile
+        const selfUpdateSchema = userUpdateSchema.omit({ id: true });
+        validation = selfUpdateSchema.safeParse(body);
+        if (!validation.success) {
+            return NextResponse.json({ error: '无效的数据', details: validation.error.flatten() }, { status: 400 });
+        }
+        idToUpdate = session.userId;
     }
 
-    const { id, name, email, password } = validation.data;
+
+    const { name, email, password } = validation.data;
 
     const updateData: { name: string; email: string; passwordHash?: string, updatedAt: Date } = {
         name,
@@ -64,13 +80,12 @@ export async function PUT(req: NextRequest) {
         updatedAt: new Date(),
     };
 
-    // Hash password if it's provided
     if (password) {
       updateData.passwordHash = await bcrypt.hash(password, 10);
     }
     
     const targetUser = await db.query.users.findFirst({
-        where: eq(users.id, id),
+        where: eq(users.id, idToUpdate),
     });
 
     if (!targetUser) {
@@ -80,7 +95,7 @@ export async function PUT(req: NextRequest) {
     // Check if new email is already taken by another user
     if (email !== targetUser.email) {
         const existingUser = await db.query.users.findFirst({
-            where: and(eq(users.email, email), eq(users.id, id)),
+            where: and(eq(users.email, email), ne(users.id, idToUpdate)),
         });
         if(existingUser) {
             return NextResponse.json({ error: { email: ['该邮箱已被其他用户注册'] }}, { status: 409 });
@@ -89,7 +104,7 @@ export async function PUT(req: NextRequest) {
 
     const updatedUser = await db.update(users)
       .set(updateData)
-      .where(eq(users.id, id))
+      .where(eq(users.id, idToUpdate))
       .returning({
          id: users.id,
          name: users.name,
