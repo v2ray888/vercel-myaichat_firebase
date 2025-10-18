@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
               createdAt: newMessage.timestamp.toISOString(),
               isActive: true,
               updatedAt: new Date().toISOString(),
-              unread: 1,
+              unread: 1, // Set unread count to 1 for new conversations
             };
             try {
                 // Send the payload as a JS object, not a string

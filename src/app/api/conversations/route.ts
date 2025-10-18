@@ -1,3 +1,4 @@
+
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
@@ -12,16 +13,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // This query now fetches ALL active conversations, without the problematic orderBy clause.
-    const allConversations = await db.query.conversations.findMany();
+    // This query now fetches ALL active conversations.
+    // The sorting will now be handled client-side for dynamic updates.
+    const allConversations = await db.query.conversations.findMany({
+        orderBy: [desc(conversationsTable.updatedAt)] // Keep a sensible default server-side sort
+    });
 
     const result = allConversations.map(c => ({
         id: c.id,
         name: c.customerName,
         messages: [], // Always return an empty array. Frontend will fetch on demand.
         isActive: c.isActive,
-        unread: 0,
-        // We add updatedAt here so the frontend can sort it.
+        unread: 0, // Initialize unread count to 0, client will manage it.
         updatedAt: c.updatedAt,
     }));
 

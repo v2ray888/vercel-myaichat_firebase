@@ -42,7 +42,7 @@ type Conversation = {
   messages: Message[];
   unread: number;
   isActive: boolean;
-  updatedAt: string; // Added for sorting
+  updatedAt: string;
 };
 
 // Represents the latest message for display in the conversation list
@@ -100,6 +100,7 @@ export default function WorkbenchPage() {
   const handleSelectConversation = useCallback(async (id: string) => {
     setSelectedConversationId(id);
     
+    // Reset unread count for the selected conversation
     setConversations(prev => {
         const newConvos = new Map(prev);
         const convo = newConvos.get(id);
@@ -110,6 +111,7 @@ export default function WorkbenchPage() {
     });
 
     const currentConvo = conversations.get(id);
+    // Fetch history only if it's empty
     if (currentConvo && currentConvo.messages.length === 0) {
       await fetchConversationHistory(id);
     }
@@ -127,6 +129,7 @@ export default function WorkbenchPage() {
                 const initialConversations = new Map(convosData.map(c => [c.id, {...c, messages: [], unread: c.unread || 0}]));
                 setConversations(initialConversations);
 
+                // Pre-fetch latest message for each conversation
                 convosData.forEach(c => {
                   fetch(`/api/stream-chat?conversationId=${c.id}`)
                     .then(res => res.json())
@@ -173,9 +176,11 @@ export default function WorkbenchPage() {
     const agentChannel = pusher.subscribe(agentChannelName);
     
     agentChannel.bind('new-conversation', (data: Conversation) => {
-      setConversations(prev => new Map(prev).set(data.id, { ...data, isActive: true, unread: 1, messages: data.messages || [] }));
-      if(data.messages.length > 0) {
-        const lastMsg = data.messages[data.messages.length - 1];
+      // Ensure messages is an array and set unread count
+      const newConvo = { ...data, messages: data.messages || [], unread: data.unread || 1 };
+      setConversations(prev => new Map(prev).set(data.id, newConvo));
+      if(newConvo.messages.length > 0) {
+        const lastMsg = newConvo.messages[newConvo.messages.length - 1];
         setLatestMessages(prev => new Map(prev).set(data.id, { text: lastMsg.text, timestamp: lastMsg.timestamp, metadata: lastMsg.metadata }));
       }
     });
@@ -187,14 +192,15 @@ export default function WorkbenchPage() {
         const channelName = `private-conversation-${convId}`;
         const channel = pusher.subscribe(channelName);
         channel.bind('new-message', (msg: Message) => {
-          const isSelected = selectedConversationId === msg.conversationId;
           
           setConversations(prev => {
             const newConvos = new Map(prev);
             const convo = newConvos.get(msg.conversationId);
             if (convo) {
               const newMessages = [...convo.messages, msg];
-              const unread = isSelected || msg.sender === 'agent' ? convo.unread : (convo.unread || 0) + 1;
+              // Increment unread count only if the message is from customer and convo is not selected
+              const isSelected = msg.conversationId === selectedConversationId;
+              const unread = !isSelected && msg.sender === 'customer' ? (convo.unread || 0) + 1 : convo.unread;
               newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, updatedAt: new Date().toISOString() });
             }
             return newConvos;
@@ -312,7 +318,10 @@ export default function WorkbenchPage() {
     fileInputRef.current?.click();
   };
 
+  // Sort conversations: those with unread messages first, then by latest update time
   const conversationArray = Array.from(conversations.values()).sort((a, b) => {
+    if (a.unread > 0 && b.unread === 0) return -1;
+    if (b.unread > 0 && a.unread === 0) return 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
 
