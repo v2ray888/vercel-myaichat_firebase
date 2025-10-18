@@ -45,7 +45,6 @@ export const messages = pgTable('messages', {
 export const quickReplies = pgTable('quick_replies', {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-    title: varchar('title', { length: 100 }).notNull(),
     content: text('content').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),

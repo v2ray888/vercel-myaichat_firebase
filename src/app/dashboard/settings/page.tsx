@@ -53,13 +53,11 @@ type SettingsFormValues = z.infer<typeof settingsSchema>;
 
 type QuickReply = {
   id: string;
-  title: string;
   content: string;
 };
 
 const quickReplyFormSchema = z.object({
   id: z.string().optional(),
-  title: z.string().min(1, '标题不能为空'),
   content: z.string().min(1, '内容不能为空'),
 });
 type QuickReplyFormValues = z.infer<typeof quickReplyFormSchema>;
@@ -90,7 +88,7 @@ export default function SettingsPage() {
   
   const quickReplyForm = useForm<QuickReplyFormValues>({
     resolver: zodResolver(quickReplyFormSchema),
-    defaultValues: { title: '', content: '' }
+    defaultValues: { content: '' }
   });
 
   const { reset, control, handleSubmit, watch } = form;
@@ -200,7 +198,7 @@ export default function SettingsPage() {
 
       toast({
         title: "保存成功",
-        description: `快捷回复 "${savedReply.title}" 已保存。`,
+        description: `快捷回复已保存。`,
       });
       closeReplyModal();
 
@@ -238,7 +236,7 @@ export default function SettingsPage() {
 
   const openReplyModal = (reply: QuickReply | null = null) => {
     setEditingReply(reply);
-    quickReplyForm.reset(reply || { title: '', content: '' });
+    quickReplyForm.reset(reply || { content: '' });
     setIsReplyModalOpen(true);
   };
   
@@ -489,7 +487,6 @@ export default function SettingsPage() {
                             {quickReplies.map((reply) => (
                                 <div key={reply.id} className="flex items-center justify-between p-4 border rounded-lg">
                                     <div className="flex-1 overflow-hidden">
-                                        <p className="font-semibold truncate">{reply.title}</p>
                                         <p className="text-sm text-muted-foreground truncate">{reply.content}</p>
                                     </div>
                                     <div className="flex items-center gap-2 ml-4">
@@ -507,7 +504,7 @@ export default function SettingsPage() {
                                                 <AlertDialogHeader>
                                                 <AlertDialogTitle>确认删除？</AlertDialogTitle>
                                                 <AlertDialogDescription>
-                                                    此操作无法撤销。您确定要永久删除标题为 “{reply.title}” 的快捷回复吗？
+                                                    此操作无法撤销。您确定要永久删除此快捷回复吗？
                                                 </AlertDialogDescription>
                                                 </AlertDialogHeader>
                                                 <AlertDialogFooter>
@@ -575,17 +572,6 @@ export default function SettingsPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <Controller
-                  name="title"
-                  control={quickReplyForm.control}
-                  render={({ field }) => (
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="title" className="text-right">标题</Label>
-                        <Input id="title" {...field} className="col-span-3" />
-                        {quickReplyForm.formState.errors.title && <p className="col-start-2 col-span-3 text-sm text-destructive">{quickReplyForm.formState.errors.title.message}</p>}
-                    </div>
-                  )}
-              />
               <Controller
                   name="content"
                   control={quickReplyForm.control}

@@ -51,7 +51,6 @@ type LatestMessage = {
 
 type QuickReply = {
   id: string;
-  title: string;
   content: string;
 };
 
@@ -420,7 +419,7 @@ export default function WorkbenchPage() {
                                                     }}
                                                     className="cursor-pointer"
                                                 >
-                                                    <span>{reply.title}</span>
+                                                    <span className="truncate">{reply.content}</span>
                                                 </CommandItem>
                                                 ))}
                                             </CommandGroup>

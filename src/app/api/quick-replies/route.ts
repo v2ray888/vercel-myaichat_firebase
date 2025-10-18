@@ -6,7 +6,6 @@ import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
 
 const quickReplySchema = z.object({
-  title: z.string().min(1, '标题不能为空').max(100, '标题不能超过100个字符'),
   content: z.string().min(1, '内容不能为空'),
 });
 
@@ -43,13 +42,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid data', details: validation.error.flatten() }, { status: 400 });
     }
 
-    const { title, content } = validation.data;
+    const { content } = validation.data;
 
     const newReply = await db.insert(quickReplies).values({
       userId: session.userId,
-      title,
       content,
-    }).returning({ id: quickReplies.id, title: quickReplies.title, content: quickReplies.content });
+    }).returning({ id: quickReplies.id, content: quickReplies.content, createdAt: quickReplies.createdAt, updatedAt: quickReplies.updatedAt });
 
     return NextResponse.json(newReply[0], { status: 201 });
   } catch (error) {
@@ -75,11 +73,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid data', details: validation.error.flatten() }, { status: 400 });
     }
 
-    const { title, content } = validation.data;
+    const { content } = validation.data;
 
     const updatedReply = await db.update(quickReplies)
       .set({
-        title,
         content,
         updatedAt: new Date(),
       })
