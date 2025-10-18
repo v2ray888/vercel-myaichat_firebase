@@ -1,15 +1,49 @@
+
+"use client"
+
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { ArrowUpRight, MessageSquare, Users, Settings } from "lucide-react"
+import { ArrowUpRight, MessageSquare, Users, Settings, Bot } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Skeleton } from "@/components/ui/skeleton";
+
+type Conversation = {
+  id: string;
+  name: string;
+  updatedAt: string;
+}
 
 export default function DashboardPage() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const convRes = await fetch('/api/conversations');
+        if (!convRes.ok) throw new Error("Failed to fetch conversations");
+        const convData = await convRes.json();
+        setConversations(convData);
+      } catch (error) {
+        console.error("Dashboard fetch error:", error);
+        // Optionally set an error state and show a toast
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  const totalConversations = conversations.length;
+  const recentConversations = conversations.slice(0, 3);
+
   const stats = [
-    { title: "今日对话", value: "128", change: "+12.5%", icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
-    { title: "访客数量", value: "1,204", change: "+8.2%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
-    { title: "满意度", value: "95%", change: "+1.8%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
-    { title: "平均响应时间", value: "32s", change: "-5.1%", icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
+    { title: "总对话数", value: isLoading ? <Skeleton className="h-8 w-16" /> : totalConversations.toString(), change: "", icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
+    { title: "访客数量", value: isLoading ? <Skeleton className="h-8 w-20" /> : "1,204", change: "+8.2%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
+    { title: "满意度", value: isLoading ? <Skeleton className="h-8 w-12" /> : "95%", change: "+1.8%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
+    { title: "平均响应时间", value: isLoading ? <Skeleton className="h-8 w-10" /> : "32s", change: "-5.1%", icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
   ]
   return (
     <div className="space-y-6">
@@ -33,7 +67,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                 <div className="text-2xl font-bold">{stat.value}</div>
-                <p className="text-xs text-muted-foreground">{stat.change} vs 上月</p>
+                {stat.change && <p className="text-xs text-muted-foreground">{stat.change} vs 上月</p>}
                 </CardContent>
             </Card>
             ))}
@@ -76,24 +110,36 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                    <div className="space-y-4">
-                        {[
-                            { name: "李女士", message: "你好，我想咨询一下关于最新的优惠活动..." },
-                            { name: "张先生", message: "这个产品怎么使用？" },
-                            { name: "王小姐", message: "我需要技术支持。" },
-                        ].map((conv, index) => (
-                            <div key={index} className="flex items-start gap-3">
-                                <Avatar className="h-9 w-9">
-                                    <AvatarImage src={`https://picsum.photos/seed/conv${index}/40/40`} />
-                                    <AvatarFallback>{conv.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                                <div>
-                                    <p className="font-semibold text-sm">{conv.name}</p>
-                                    <p className="text-sm text-muted-foreground truncate">{conv.message}</p>
+                        {isLoading ? (
+                            <>
+                                <div className="flex items-start gap-3"><Skeleton className="h-9 w-9 rounded-full" /><div className="space-y-2"><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-48" /></div></div>
+                                <div className="flex items-start gap-3"><Skeleton className="h-9 w-9 rounded-full" /><div className="space-y-2"><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-48" /></div></div>
+                                <div className="flex items-start gap-3"><Skeleton className="h-9 w-9 rounded-full" /><div className="space-y-2"><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-48" /></div></div>
+                            </>
+                        ) : recentConversations.length > 0 ? (
+                           recentConversations.map((conv) => (
+                                <div key={conv.id} className="flex items-start gap-3">
+                                    <Avatar className="h-9 w-9">
+                                        <AvatarImage src={`https://picsum.photos/seed/${conv.id}/40/40`} />
+                                        <AvatarFallback>{conv.name.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                    <div>
+                                        <p className="font-semibold text-sm">{conv.name}</p>
+                                        <p className="text-sm text-muted-foreground truncate">
+                                            对话更新于 {new Date(conv.updatedAt).toLocaleTimeString()}
+                                        </p>
+                                    </div>
                                 </div>
+                            ))
+                        ) : (
+                            <div className="text-center text-muted-foreground py-6">
+                                <p>暂无对话</p>
                             </div>
-                        ))}
+                        )}
                    </div>
-                   <Button variant="outline" className="w-full mt-4">查看所有对话</Button>
+                   <Button variant="outline" className="w-full mt-4" asChild>
+                       <Link href="/dashboard/workbench">查看所有对话</Link>
+                   </Button>
                 </CardContent>
             </Card>
         </div>
