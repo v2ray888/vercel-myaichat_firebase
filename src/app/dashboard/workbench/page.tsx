@@ -75,7 +75,7 @@ export default function WorkbenchPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { session, isLoading: isSessionLoading } = useSession();
   const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isUploading, setIsUploading] = useState(isUploading);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   
@@ -570,17 +570,50 @@ export default function WorkbenchPage() {
                             <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive || isUploading} onClick={handleImageUploadClick}>
                                {isUploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
                             </Button>
-                            <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}><Paperclip className="h-5 w-5 text-muted-foreground" /></Button>
+                            
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
+                                        <Paperclip className="h-5 w-5 text-muted-foreground" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-80 p-0">
+                                    <Command>
+                                        <CommandInput placeholder="搜索快捷回复..." />
+                                        <CommandList>
+                                            <CommandGroup heading="快捷回复">
+                                                {quickReplies.length === 0 ? (
+                                                     <CommandEmpty>没有找到快捷回复。</CommandEmpty>
+                                                ) : (
+                                                    quickReplies.map((reply) => (
+                                                    <CommandItem
+                                                        key={reply.id}
+                                                        onSelect={() => {
+                                                            handleQuickReplySend(reply.content);
+                                                            // Close the popover
+                                                            document.body.click();
+                                                        }}
+                                                        className="cursor-pointer"
+                                                    >
+                                                        <span className="truncate">{reply.content}</span>
+                                                    </CommandItem>
+                                                    ))
+                                                )}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                            
                             {settings?.enableAiFeatures && (
                                 <Popover onOpenChange={() => setAiSuggestion(null)}>
                                     <PopoverTrigger asChild>
-                                        <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive}>
-                                            <Zap className="h-5 w-5 text-muted-foreground" />
+                                        <Button variant="ghost" size="icon" disabled={!selectedConversation.isActive || isGeneratingSuggestion}>
+                                            {isGeneratingSuggestion ? <Loader2 className="h-5 w-5 animate-spin" /> : <Zap className="h-5 w-5 text-muted-foreground" />}
                                         </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-80 p-0">
                                         <Command>
-                                            <CommandInput placeholder="搜索快捷回复..." />
                                             <CommandList>
                                                 <CommandGroup heading="AI建议">
                                                     <CommandItem
@@ -588,42 +621,20 @@ export default function WorkbenchPage() {
                                                         className="cursor-pointer"
                                                         disabled={isGeneratingSuggestion}
                                                     >
-                                                        {isGeneratingSuggestion ? (
-                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                        ) : (
-                                                            <Sparkles className="mr-2 h-4 w-4 text-yellow-500" />
-                                                        )}
+                                                        <Sparkles className="mr-2 h-4 w-4 text-yellow-500" />
                                                         <span>生成回复建议</span>
                                                     </CommandItem>
                                                     {aiSuggestion && (
                                                         <CommandItem
-                                                            onSelect={() => handleQuickReplySend(aiSuggestion)}
+                                                            onSelect={() => {
+                                                                handleQuickReplySend(aiSuggestion)
+                                                                document.body.click();
+                                                            }}
                                                             className="cursor-pointer text-blue-600 whitespace-normal h-auto"
                                                         >
                                                             {aiSuggestion}
                                                         </CommandItem>
                                                     )}
-                                                </CommandGroup>
-                                                <CommandSeparator />
-                                                <CommandGroup heading="手动回复">
-                                                    {quickReplies.length === 0 && !isGeneratingSuggestion && !aiSuggestion && (
-                                                         <CommandEmpty>没有找到快捷回复。</CommandEmpty>
-                                                    )}
-                                                    {quickReplies.map((reply) => (
-                                                    <CommandItem
-                                                        key={reply.id}
-                                                        onSelect={() => {
-                                                            handleQuickReplySend(reply.content);
-                                                            const popoverTrigger = document.querySelector('[aria-controls^="radix-"][aria-expanded="true"]');
-                                                            if (popoverTrigger) {
-                                                               (popoverTrigger as HTMLElement).click();
-                                                            }
-                                                        }}
-                                                        className="cursor-pointer"
-                                                    >
-                                                        <span className="truncate">{reply.content}</span>
-                                                    </CommandItem>
-                                                    ))}
                                                 </CommandGroup>
                                             </CommandList>
                                         </Command>
@@ -650,3 +661,5 @@ export default function WorkbenchPage() {
     </div>
   )
 }
+
+    
