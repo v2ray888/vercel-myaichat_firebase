@@ -1,3 +1,4 @@
+
 import { NextResponse, NextRequest } from 'next/server';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/db';
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
                     primaryColor: true,
                     backgroundColor: true,
                     workspaceName: true,
+                    allowCustomerImageUpload: true,
                 },
                 where: eq(settingsTable.id, appId),
             });
