@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         updatedAt: new Date(),
     }
 
-    // Insert into the database without returning, as it might fail on some drivers
+    // Insert into the database.
     await db.insert(quickReplies).values(newReplyData);
     
     // Return the manually constructed object. This is an optimistic response.
