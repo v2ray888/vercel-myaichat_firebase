@@ -92,6 +92,7 @@ export default function SettingsPage() {
       primaryColor: "#3F51B5",
       backgroundColor: "#F0F2F5",
       workspaceName: "",
+      workspaceDomain: "",
     }
   });
   
@@ -655,7 +656,7 @@ export default function SettingsPage() {
                 render={({ field }) => (
                   <div className="space-y-2">
                     <Label htmlFor="workspace-domain">工作区域名</Label>
-                    <Input id="workspace-domain" {...field} />
+                    <Input id="workspace-domain" {...field} value={field.value ?? ''} />
                   </div>
                 )}
               />
@@ -702,3 +703,5 @@ export default function SettingsPage() {
     </>
   )
 }
+
+    
