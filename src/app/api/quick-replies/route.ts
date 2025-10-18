@@ -4,6 +4,8 @@ import { db } from '@/lib/db';
 import { quickReplies } from '@/lib/schema';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
+import { v4 as uuidv4 } from 'uuid';
+
 
 const quickReplySchema = z.object({
   content: z.string().min(1, '内容不能为空'),
@@ -43,13 +45,22 @@ export async function POST(req: NextRequest) {
     }
 
     const { content } = validation.data;
+    
+    const newReplyData = {
+        id: uuidv4(),
+        userId: session.userId,
+        content: content,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+    }
 
-    const newReply = await db.insert(quickReplies).values({
-      userId: session.userId,
-      content,
-    }).returning({ id: quickReplies.id, content: quickReplies.content, createdAt: quickReplies.createdAt, updatedAt: quickReplies.updatedAt });
+    // Insert into the database without returning, as it might fail on some drivers
+    await db.insert(quickReplies).values(newReplyData);
+    
+    // Return the manually constructed object. This is an optimistic response.
+    // The frontend can use this to update the UI immediately.
+    return NextResponse.json(newReplyData, { status: 201 });
 
-    return NextResponse.json(newReply[0], { status: 201 });
   } catch (error) {
     console.error('Failed to create quick reply:', error);
     return NextResponse.json({ error: 'Failed to create quick reply' }, { status: 500 });
