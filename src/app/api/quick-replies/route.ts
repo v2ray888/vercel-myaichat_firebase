@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(replies);
   } catch (error) {
     console.error('Failed to fetch quick replies:', error);
-    return NextResponse.json({ error: 'Failed to fetch quick replies' }, { status: 500 });
+    // Return an empty array but with a server error status
+    // This prevents the entire page from crashing on the frontend
+    return NextResponse.json([], { status: 500, statusText: 'Failed to fetch quick replies' });
   }
 }
 

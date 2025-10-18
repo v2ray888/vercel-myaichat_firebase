@@ -118,15 +118,20 @@ export default function SettingsPage() {
       setIsRepliesLoading(true);
       try {
         const response = await fetch('/api/quick-replies');
-        if (!response.ok) throw new Error("Failed to fetch quick replies");
-        const data = await response.json();
+        // Even if the response is not ok (e.g. 500), we proceed with empty data
+        // to prevent the page from crashing.
+        const data = response.ok ? await response.json() : [];
         setQuickReplies(data);
+
+        if(!response.ok) {
+           throw new Error("Failed to fetch quick replies");
+        }
       } catch (error) {
         console.error(error);
         toast({
           variant: "destructive",
-          title: "加载失败",
-          description: "无法加载快捷回复列表。"
+          title: "加载快捷回复失败",
+          description: "无法加载快捷回复列表。请检查数据库连接或稍后重试。"
         });
       } finally {
         setIsRepliesLoading(false);
@@ -169,13 +174,15 @@ export default function SettingsPage() {
 
   const handleQuickReplySubmit = async (data: QuickReplyFormValues) => {
     setIsSaving(true);
-    const isEditing = !!data.id;
+    const isEditing = !!editingReply;
     const url = '/api/quick-replies';
     const method = isEditing ? 'PUT' : 'POST';
     
     let payload: any = { ...data };
-    if (!isEditing) {
-      delete payload.id;
+    if (isEditing) {
+        payload.id = editingReply?.id;
+    } else {
+        delete payload.id
     }
 
     try {
