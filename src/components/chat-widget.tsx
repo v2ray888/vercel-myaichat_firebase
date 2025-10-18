@@ -1,4 +1,5 @@
 
+
 "use client"
 
 import { useState, useEffect, useRef, Suspense } from 'react';
@@ -366,6 +367,7 @@ function ChatWidgetContent() {
 
                             {message.sender === 'user' && (
                                 <Avatar className="h-8 w-8">
+                                    {conversationId ? <AvatarImage src={`https://picsum.photos/seed/${conversationId}/40/40`} alt="User" /> : null}
                                     <AvatarFallback><User size={18}/></AvatarFallback>
                                 </Avatar>
                             )}
@@ -420,3 +422,7 @@ export default function ChatWidget() {
         </Suspense>
     )
 }
+
+    
+
+    
