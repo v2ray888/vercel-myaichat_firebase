@@ -1,49 +1,81 @@
 
 "use client"
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { ArrowUpRight, MessageSquare, Users, Settings, Bot } from "lucide-react"
+import { ArrowUpRight, MessageSquare, Users, Activity, MessageSquarePlus } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton";
+import Pusher from 'pusher-js';
+import { useSession } from "@/hooks/use-session";
 
 type Conversation = {
   id: string;
-  name: string;
+  name: string | null;
   updatedAt: string;
 }
 
+type Stats = {
+  totalConversations: number;
+  activeConversations: number;
+  todayConversations: number;
+};
+
 export default function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [stats, setStats] = useState<Stats>({ totalConversations: 0, activeConversations: 0, todayConversations: 0 });
   const [isLoading, setIsLoading] = useState(true);
+  const { session, isLoading: isSessionLoading } = useSession();
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const convRes = await fetch('/api/conversations');
-        if (!convRes.ok) throw new Error("Failed to fetch conversations");
-        const convData = await convRes.json();
-        setConversations(convData);
-      } catch (error) {
-        console.error("Dashboard fetch error:", error);
-        // Optionally set an error state and show a toast
-      } finally {
-        setIsLoading(false);
-      }
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/conversations');
+      if (!res.ok) throw new Error("Failed to fetch data");
+      const data = await res.json();
+      setConversations(data.conversations || []);
+      setStats(data.stats || { totalConversations: 0, activeConversations: 0, todayConversations: 0 });
+    } catch (error) {
+      console.error("Dashboard fetch error:", error);
+      // Optionally set an error state and show a toast
+    } finally {
+      setIsLoading(false);
     }
-    fetchData();
   }, []);
 
-  const totalConversations = conversations.length;
-  const recentConversations = conversations.slice(0, 3);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-  const stats = [
-    { title: "总对话数", value: isLoading ? <Skeleton className="h-8 w-16" /> : totalConversations.toString(), change: "", icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
-    { title: "访客数量", value: isLoading ? <Skeleton className="h-8 w-20" /> : "1,204", change: "+8.2%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
-    { title: "满意度", value: isLoading ? <Skeleton className="h-8 w-12" /> : "95%", change: "+1.8%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
-    { title: "平均响应时间", value: isLoading ? <Skeleton className="h-8 w-10" /> : "32s", change: "-5.1%", icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
+  useEffect(() => {
+    if (!session?.userId || isSessionLoading) return;
+
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+        cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+        authEndpoint: '/api/pusher-auth',
+    });
+    
+    const agentChannelName = `private-agent-${session.userId}`;
+    const agentChannel = pusher.subscribe(agentChannelName);
+    
+    agentChannel.bind('dashboard-update', () => {
+      fetchData(); // Refetch data when an update event is received
+    });
+
+    return () => {
+        pusher.unsubscribe(agentChannelName);
+        pusher.disconnect();
+    }
+  }, [session?.userId, isSessionLoading, fetchData]);
+
+
+  const statsCards = [
+    { title: "总对话数", value: isLoading ? <Skeleton className="h-8 w-16" /> : stats.totalConversations.toString(), icon: <MessageSquare className="h-5 w-5 text-muted-foreground" /> },
+    { title: "今日新增", value: isLoading ? <Skeleton className="h-8 w-12" /> : stats.todayConversations.toString(), icon: <MessageSquarePlus className="h-5 w-5 text-muted-foreground" /> },
+    { title: "当前活跃", value: isLoading ? <Skeleton className="h-8 w-10" /> : stats.activeConversations.toString(), icon: <Activity className="h-5 w-5 text-muted-foreground" /> },
+    { title: "满意度", value: isLoading ? <Skeleton className="h-8 w-12" /> : "95%", icon: <Users className="h-5 w-5 text-muted-foreground" /> },
   ]
   return (
     <div className="space-y-6">
@@ -59,7 +91,7 @@ export default function DashboardPage() {
             </Button>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {stats.map((stat, index) => (
+            {statsCards.map((stat, index) => (
             <Card key={index}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
@@ -67,7 +99,6 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                 <div className="text-2xl font-bold">{stat.value}</div>
-                {stat.change && <p className="text-xs text-muted-foreground">{stat.change} vs 上月</p>}
                 </CardContent>
             </Card>
             ))}
@@ -83,7 +114,7 @@ export default function DashboardPage() {
                     <div className="flex flex-col space-y-3">
                         <Link href="/dashboard/settings" className="flex items-center justify-between p-3 rounded-md hover:bg-muted transition-colors">
                             <div className="flex items-center gap-3">
-                                <div className="p-2 bg-primary/10 rounded-md"><Settings className="h-5 w-5 text-primary"/></div>
+                                <div className="p-2 bg-primary/10 rounded-md"><Users className="h-5 w-5 text-primary"/></div>
                                 <div>
                                     <p className="font-semibold">配置小部件</p>
                                     <p className="text-sm text-muted-foreground">自定义您的聊天窗口外观和行为</p>
@@ -116,12 +147,12 @@ export default function DashboardPage() {
                                 <div className="flex items-start gap-3"><Skeleton className="h-9 w-9 rounded-full" /><div className="space-y-2"><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-48" /></div></div>
                                 <div className="flex items-start gap-3"><Skeleton className="h-9 w-9 rounded-full" /><div className="space-y-2"><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-48" /></div></div>
                             </>
-                        ) : recentConversations.length > 0 ? (
-                           recentConversations.map((conv) => (
+                        ) : conversations.length > 0 ? (
+                           conversations.slice(0, 3).map((conv) => (
                                 <div key={conv.id} className="flex items-start gap-3">
                                     <Avatar className="h-9 w-9">
                                         <AvatarImage src={`https://picsum.photos/seed/${conv.id}/40/40`} />
-                                        <AvatarFallback>{conv.name.charAt(0)}</AvatarFallback>
+                                        <AvatarFallback>{conv.name?.charAt(0)}</AvatarFallback>
                                     </Avatar>
                                     <div>
                                         <p className="font-semibold text-sm">{conv.name}</p>

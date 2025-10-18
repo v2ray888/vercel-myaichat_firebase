@@ -124,7 +124,10 @@ export async function POST(req: NextRequest) {
               unread: 1, 
             };
             try {
+                // Notify agent of new conversation to add to workbench list
                 await pusher.trigger(agentChannel, 'new-conversation', conversationPayload);
+                // Notify dashboard to update stats
+                await pusher.trigger(agentChannel, 'dashboard-update', { message: 'new conversation' });
             } catch (e) {
                 console.error("Pusher trigger failed for new-conversation:", e);
             }
@@ -186,9 +189,12 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
         }
         
-        // Notify the agent channel to remove it from the UI in real-time
         const agentChannel = `private-agent-${session.userId}`;
+        // Notify the agent channel to remove it from the UI in real-time
         await pusher.trigger(agentChannel, 'conversation-archived', { conversationId });
+        // Notify dashboard to update stats
+        await pusher.trigger(agentChannel, 'dashboard-update', { message: 'conversation archived' });
+
 
         return NextResponse.json({ success: true, conversationId });
     } catch (error: any) {
