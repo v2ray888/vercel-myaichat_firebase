@@ -170,8 +170,12 @@ function ChatWidgetContent() {
              subscribeToChannel(storedConvId);
             
             fetch(`/api/stream-chat?conversationId=${storedConvId}`).then(res => res.json()).then(data => {
-                if (data && data.messages && data.messages.length > 0) {
-                     const historyMessages = data.messages.map((msg: any) => ({...msg, sender: msg.sender === 'customer' ? 'user' : (msg.sender || 'agent')}));
+                console.log('API response data:', data);
+                // 确保 messages 是数组，防止 t.map is not a function 错误
+                const messagesArray = Array.isArray(data?.messages) ? data.messages : [];
+                console.log('Messages array:', messagesArray);
+                if (messagesArray.length > 0) {
+                     const historyMessages = messagesArray.map((msg: any) => ({...msg, sender: msg.sender === 'customer' ? 'user' : (msg.sender || 'agent')}));
                      setMessages(prev => [prev[0], ...historyMessages]);
                 }
             }).catch(err => console.error("Failed to fetch history:", err));
@@ -331,7 +335,7 @@ function ChatWidgetContent() {
                         <div>
                             <p className="font-semibold text-base">{settings.workspaceName || '智聊通客服'}</p>
                             <p className="text-xs text-primary-foreground/80">
-                               {isConnecting ? '正在连接...' : (pusherClient?.connection.state === 'connected' ? '在线' : settings.offlineMessage)}
+                               {isConnecting ? '正在连接...' : ((pusherClient as any)?.connection?.state === 'connected' ? '在线' : settings.offlineMessage)}
                             </p>
                         </div>
                     </div>

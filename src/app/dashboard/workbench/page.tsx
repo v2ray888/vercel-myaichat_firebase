@@ -96,9 +96,11 @@ export default function WorkbenchPage() {
           const convo = newConvos.get(convId);
           if (convo) {
             // Filter out existing messages to avoid duplicates
-            const existingMessageIds = new Set(convo.messages.map(m => m.id));
-            const newMessages = data.messages.filter(m => !existingMessageIds.has(m.id));
-            newConvos.set(convId, { ...convo, messages: [...convo.messages, ...newMessages], ipAddress: data.ipAddress || convo.ipAddress });
+            const convoMessages = Array.isArray(convo.messages) ? convo.messages : [];
+            const dataMessages = Array.isArray(data.messages) ? data.messages : [];
+            const existingMessageIds = new Set(convoMessages.map(m => m.id));
+            const newMessages = dataMessages.filter(m => !existingMessageIds.has(m.id));
+            newConvos.set(convId, { ...convo, messages: [...convoMessages, ...newMessages], ipAddress: data.ipAddress || convo.ipAddress });
           }
           return newConvos;
         });
@@ -207,10 +209,11 @@ export default function WorkbenchPage() {
             const newConvos = new Map(prev);
             let convo = newConvos.get(msg.conversationId);
             if (convo) {
-                const messageExists = convo.messages.some(m => m.id === msg.id);
+                const convoMessages = Array.isArray(convo.messages) ? convo.messages : [];
+                const messageExists = convoMessages.some(m => m.id === msg.id);
                 if (messageExists) return newConvos; // Don't add duplicate message
                 
-                const newMessages = [...convo.messages, msg];
+                const newMessages = [...convoMessages, msg];
                 const isSelected = msg.conversationId === selectedConversationId;
                 const unread = !isSelected ? (convo.unread || 0) + 1 : convo.unread;
                 newConvos.set(msg.conversationId, { ...convo, messages: newMessages, unread, ipAddress: msg.conversationIp || convo.ipAddress, updatedAt: new Date().toISOString() });
@@ -305,7 +308,8 @@ export default function WorkbenchPage() {
         const newConvos = new Map(prev);
         const convo = newConvos.get(selectedConversationId);
         if (convo) {
-          newConvos.set(selectedConversationId, { ...convo, messages: convo.messages.filter(m => m.id !== optimisticMessage.id) });
+          const convoMessages = Array.isArray(convo.messages) ? convo.messages : [];
+          newConvos.set(selectedConversationId, { ...convo, messages: convoMessages.filter(m => m.id !== optimisticMessage.id) });
         }
         return newConvos;
       });
@@ -508,7 +512,7 @@ export default function WorkbenchPage() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {selectedConversation.messages.map((msg) => (
+              {Array.isArray(selectedConversation.messages) ? selectedConversation.messages.map((msg) => (
                 <div key={msg.id} className={cn("flex items-end gap-2", msg.sender === 'agent' ? 'justify-end' : 'justify-start')}>
                   {msg.sender === 'customer' && (
                     <Avatar className="h-8 w-8">
@@ -534,7 +538,7 @@ export default function WorkbenchPage() {
                     </Avatar>
                   )}
                 </div>
-              ))}
+              )) : null}
               <div ref={messagesEndRef} />
             </div>
             <div className="p-4 border-t bg-card flex-shrink-0">
