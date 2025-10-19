@@ -1,3 +1,4 @@
+'use server';
 import { NextRequest, NextResponse } from 'next/server';
 // By importing the flow, we ensure it's registered with Genkit before the API is called.
 import '@/ai/flows/generate-quick-reply-flow';

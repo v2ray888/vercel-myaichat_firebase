@@ -1,4 +1,3 @@
-'use server';
 /**
  * @fileOverview Flow for generating a quick reply suggestion based on a customer's message.
  *
