@@ -350,7 +350,7 @@ function ChatWidgetContent() {
                     </Button>
                 </CardHeader>
                 <CardContent className="flex-1 p-4 overflow-y-auto space-y-4 bg-[--widget-background-color]">
-                    {Array.isArray(messages) ? messages.map((message) => (
+                    {messages.map((message) => (
                         <div key={message.id} className={cn("flex items-end gap-2", message.sender === 'user' ? 'justify-end' : 'justify-start')}>
                              {message.sender !== 'user' && message.sender !== 'system' && (
                                 <Avatar className="h-8 w-8">
@@ -381,7 +381,7 @@ function ChatWidgetContent() {
                                 </Avatar>
                             )}
                         </div>
-                    )) : null}
+                    ))}
                     <div ref={messagesEndRef} />
                 </CardContent>
                 <CardFooter className="p-0 flex flex-col bg-card">
